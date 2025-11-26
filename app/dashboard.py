@@ -109,7 +109,7 @@ def render_chart_from_json(ticker, plot_data):
     ax.spines['right'].set_visible(False)
     
     plt.legend(facecolor="#2d2f3a", labelcolor="white", framealpha=1)
-    st.pyplot(fig, use_container_width=True)
+    st.pyplot(fig, width='stretch')
 
 
 def render_volsense_stats(ticker, raw_data):
@@ -123,12 +123,14 @@ def render_volsense_stats(ticker, raw_data):
     # 1. Display Metrics Grid
     st.subheader("🔢 Quantitative Metrics")
     m = raw_data["metrics"]
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Forecast (5d)", f"{m['forecast_5d']:.4f}")
-    c2.metric("Today Vol", f"{m['current_vol']:.4f}")
-    c3.metric("Vol Spread", f"{m['vol_spread_pct']:.2%}")
-    c4.metric("Z-Score", f"{m['z_score']:.2f}", delta_color="inverse")
-    c5.metric("Term Spread", f"{m['term_spread_10v5']:.2%}")
+    c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
+    c1.metric("Forecast (1d)", f"{m['forecast_1d']:.4f}")
+    c2.metric("Forecast (5d)", f"{m['forecast_5d']:.4f}")
+    c3.metric("Forecast (10d)", f"{m['forecast_10d']:.4f}")
+    c4.metric("Today Vol", f"{m['current_vol']:.4f}")
+    c5.metric("Vol Spread", f"{m['vol_spread_pct']:.2%}")
+    c6.metric("Z-Score", f"{m['z_score']:.2f}", delta_color="inverse")
+    c7.metric("Term Spread", f"{m['term_spread_10v5']:.2%}")
 
     # 2. Render Chart (From Cache)
     st.markdown("### 📉 Volatility Chart")
@@ -147,7 +149,7 @@ with st.sidebar:
     
     ticker_input = st.text_input("Ticker Symbol", value="NVDA", help="Enter a US Equity Ticker").upper()
     
-    if st.button("Convene Council 🔔", type="primary", use_container_width=True):
+    if st.button("Convene Council 🔔", type="primary", width='stretch'):
         with st.spinner(f"📡 Summoning Agents for {ticker_input}..."):
             try:
                 # INVOKE THE GRAPH
@@ -160,8 +162,16 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("**System Status**")
     
-    # 1. Check the Singleton
     service = VolSenseService.get_instance()
+    
+    # NEW: Manual Refresh Button
+    if st.button("🔄 Hydrate Market (v507)", type="secondary"):
+        with st.spinner("Running Batch Inference on 507 Tickers (This takes ~2 mins)"):
+            try:
+                service.hydrate_market()
+                st.success("Daily Log Updated!")
+            except Exception as e:
+                st.error(f"Hydration failed: {e}")
     
     # 2. ALSO Check Session State (The "Memory" of the app)
     # If we have a result in session state, the engine MUST be live.
