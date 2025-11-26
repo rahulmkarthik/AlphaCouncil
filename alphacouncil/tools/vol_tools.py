@@ -102,7 +102,13 @@ class VolSenseService:
                 "sector": str(row.get("sector", "Unknown")),
                 "metrics": {
                     "current_vol": round(float(row.get("today_vol", 0)), 4),
+                    "forecast_1d": round(float(row.get("forecast_vol_1", 
+                                     preds.loc[preds["ticker"] == ticker, "pred_vol_1"].values[0] 
+                                     if "pred_vol_1" in preds.columns else 0)), 4),
                     "forecast_5d": round(float(row.get("forecast_vol", 0)), 4),
+                    "forecast_10d": round(float(row.get("forecast_vol_10", 
+                                      preds.loc[preds["ticker"] == ticker, "pred_vol_10"].values[0] 
+                                      if "pred_vol_10" in preds.columns else 0)), 4),
                     "vol_spread_pct": round(float(row.get("vol_spread", 0)), 4),
                     "z_score": round(float(row.get("vol_zscore", 0)), 2),
                     "term_spread_10v5": round(float(row.get("term_spread_10v5", 0)), 4),
