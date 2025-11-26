@@ -29,7 +29,7 @@ ENV/
 .env
 .venv/
 
-# --- Environment Variables & Secrets (CRITICAL) ---
+# --- Environment Variables & Secrets ---
 .env
 .env.local
 .env.*
@@ -39,7 +39,7 @@ secrets.json
 # --- Data Science & Jupyter ---
 .ipynb_checkpoints
 */.ipynb_checkpoints/*
-# Exclude large data files (unless you specifically want to track small samples)
+# Exclude large data files
 *.csv
 *.xls
 *.xlsx
