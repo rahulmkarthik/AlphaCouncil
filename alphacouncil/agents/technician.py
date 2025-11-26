@@ -1,51 +1,50 @@
-import os
+import json
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
 from alphacouncil.tools.vol_tools import get_vol_metrics
 from alphacouncil.schema import TechnicalSignal
 
-# 1. Initialize Gemini 3.0 Pro
-# 'max_retries' helps if the API is momentarily busy
+# Initialize Gemini 3.0 Pro
 llm = ChatGoogleGenerativeAI(
-    model="gemini-2.0-flash-exp", # Or "gemini-1.5-pro" if flash unavailable
+    model="gemini-2.0-flash-exp", # Or gemini-1.5-pro
     temperature=0,
     max_retries=2
 )
 
-# 2. Bind Tools
+# Bind Tools
 tools = [get_vol_metrics]
-
-# 3. Create the "Structured" Agent
-# This tells Gemini: "You MUST output a JSON object matching TechnicalSignal"
 technician_runnable = llm.bind_tools(tools).with_structured_output(TechnicalSignal)
 
-# 4. System Prompt
-SYSTEM_PROMPT = SYSTEM_PROMPT = """You are 'The Technician', an expert Quantitative Researcher using VolSense.
+# SIMPLIFIED PROMPT
+SYSTEM_PROMPT = """You are 'The Technician'. Analyze the volatility metrics provided by the tool.
 
-YOUR DATA:
-- `vol_spread_pct`: If positive, volatility is rising relative to today. If negative, it is mean-reverting.
-- `rank_in_sector`: 
-    - > 0.90: This stock is the most volatile in its sector (Idiosyncratic Risk).
-    - ~ 0.50: It is moving with the herd (Systematic Risk).
-- `heuristic_signal`: A baseline rule-based signal (long/short/neutral). Critique it.
-
-DECISION LOGIC:
-1. **Long Vol (BUY):** Z-Score > 1.5 AND vol_spread_pct > 0 (Breakout).
-2. **Short Vol (SELL):** Z-Score > 2.0 BUT vol_spread_pct < -0.05 (Mean Reversion).
-3. **Relative Value (HEDGE):** High Z-Score but rank_in_sector < 0.6 (The whole sector is crashing, do not short vol).
+CRITICAL RULES:
+1. **TRUST THE Z-SCORE**: If `z_score` > 1.5, you CANNOT output 'WAIT'. You must output 'BUY' (Long Vol) or 'HEDGE'.
+2. **TRUST THE HEURISTIC**: If `heuristic_signal` is 'long', your default signal is 'BUY'. If 'short', your default is 'SELL'.
+3. **REGIME AWARENESS**: If `regime` is 'Spike' or 'High Vol', treat this as a high-conviction setup.
 
 Output strictly valid JSON matching the TechnicalSignal schema.
 """
 
-# 5. Node Function
 def technician_agent(state):
-    # Gemini forbids empty message lists.
-    # If the graph started with just a ticker, we must manually create the first Human prompt.
     messages = state.get("messages", [])
     if not messages:
         messages = [HumanMessage(content=f"Analyze the volatility for {state['ticker']}")]
 
-    # Now the input is [SystemMessage, HumanMessage] -> Valid for Gemini
-    response = technician_runnable.invoke([SystemMessage(content=SYSTEM_PROMPT)] + messages)
+    # 1. Run the Agent Logic
+    ai_msg = technician_runnable.invoke([SystemMessage(content=SYSTEM_PROMPT)] + messages)
     
-    return {"technical_signal": response}
+    # 2. CAPTURE DATA FOR DASHBOARD (The "Bridge" Fix)
+    # We manually fetch the raw data so we can pass it to the UI
+    raw_data = None
+    try:
+        # Manually invoke tool to get the payload for the UI state
+        data_json = get_vol_metrics.invoke({"ticker": state["ticker"]})
+        raw_data = json.loads(data_json)
+    except:
+        raw_data = {}
+
+    return {
+        "technical_signal": ai_msg,
+        "raw_vol_data": raw_data
+    }
