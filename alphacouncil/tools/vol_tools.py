@@ -1,4 +1,5 @@
 import os
+import pandas as pd
 import json
 import builtins
 from typing import Optional
@@ -48,18 +49,18 @@ class VolSenseService:
     def get_rich_data(self, ticker: str) -> dict:
         cache = get_daily_cache()
         
-        # 1. CHECK CACHE FIRST (Speed: Instant)
+        # 1. CHECK CACHE
         cached_result = cache.get_valid_entry(ticker)
         if cached_result:
             print(f"⚡ CACHE HIT: Returning saved data for {ticker}")
             return cached_result
 
-        # 2. CACHE MISS: Run Heavy Inference (Speed: Slow)
+        # 2. RUN INFERENCE
         print(f"🐢 CACHE MISS: Running VolSense Inference for {ticker}...")
         self._ensure_loaded()
         
         # Inject Reference Universe
-        universe = list(set([ticker, "SPY", "QQQ", "VXX", "GLD", "TLT"]))
+        universe = list(set([ticker, "SPY", "QQQ", "VXX"]))
         preds = self._forecast_engine.run(tickers=universe)
         
         sig = SignalEngine(model_version=self.model_version)
@@ -71,12 +72,33 @@ class VolSenseService:
 
         row = sig.signals[sig.signals["ticker"] == ticker].iloc[0]
         type_map = get_ticker_type_map(self.model_version)
-        asset_type = type_map.get(ticker, "Equity")
 
-        # Build Payload
+        # --- NEW: SERIALIZE PLOT DATA ---
+        # 1. Get History (Last 150 days)
+        # The engine stores recent data in self.df_recent after .run()
+        full_hist = self._forecast_engine.df_recent
+        ticker_hist = full_hist[full_hist["ticker"] == ticker].sort_values("date").tail(150)
+        
+        # Convert to list of dicts: [{'date': '2025-01-01', 'vol': 0.15}, ...]
+        history_json = []
+        for _, r in ticker_hist.iterrows():
+            history_json.append({
+                "date": r["date"].strftime("%Y-%m-%d"),
+                "realized_vol": float(r["realized_vol"]) if pd.notna(r["realized_vol"]) else None
+            })
+
+        # 2. Get Forecast Levels (for horizontal lines)
+        forecast_levels = {}
+        for h in [1, 5, 10]: # Common horizons
+            col = f"pred_vol_{h}"
+            if col in preds.columns:
+                val = preds.loc[preds["ticker"] == ticker, col].values[0]
+                forecast_levels[str(h)] = float(val) if pd.notna(val) else None
+        # --------------------------------
+
         result_payload = {
             "ticker": ticker,
-            "type": asset_type,
+            "type": type_map.get(ticker, "Equity"),
             "sector": str(row.get("sector", "Unknown")),
             "metrics": {
                 "current_vol": round(float(row.get("today_vol", 0)), 4),
@@ -90,6 +112,11 @@ class VolSenseService:
                 "sector_z_score": round(float(row.get("sector_z", 0)), 2),
                 "rank_in_sector": round(float(row.get("rank_sector", 0.5)), 2),
                 "heuristic_signal": str(row.get("position", "neutral"))
+            },
+            # NEW KEY
+            "plot_data": {
+                "history": history_json,
+                "forecasts": forecast_levels
             }
         }
 

@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-from typing import Annotated, TypedDict, Any
+from typing import Annotated, TypedDict, Any, Optional, Dict
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 
@@ -16,9 +16,10 @@ from alphacouncil.schema import TechnicalSignal, SectorIntel
 class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
     ticker: str
-    # These will now hold the Pydantic models (TechnicalSignal, SectorIntel)
     technical_signal: Any 
     fundamental_signal: Any
+    # NEW: This field carries the raw numbers to the dashboard
+    raw_vol_data: Optional[Dict[str, Any]]
 
 # 2. Graph Definition
 workflow = StateGraph(AgentState)
