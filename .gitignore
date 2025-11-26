@@ -1,0 +1,92 @@
+# --- General Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# --- Virtual Environments ---
+venv/
+env/
+ENV/
+.env
+.venv/
+
+# --- Environment Variables & Secrets (CRITICAL) ---
+.env
+.env.local
+.env.*
+*.pem
+secrets.json
+
+# --- Data Science & Jupyter ---
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
+# Exclude large data files (unless you specifically want to track small samples)
+*.csv
+*.xls
+*.xlsx
+*.parquet
+*.h5
+*.pkl
+*.pickle
+data/
+# Keep gitkeep to track the folder structure if empty
+!data/.gitkeep
+
+# --- PyTorch & Models ---
+*.pt
+*.pth
+*.onnx
+models/
+# Keep gitkeep if you want the folder structure
+!models/.gitkeep
+
+# --- IDE Settings (VS Code, JetBrains) ---
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+
+# --- Operating System Files ---
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# --- Streamlit ---
+.streamlit/secrets.toml
+# Keep config if generic, ignore if personal
+# .streamlit/config.toml 
+
+# --- PyTest & Coverage ---
+.coverage
+htmlcov/
+.pytest_cache/
+
+# --- MyPy & Type Checking ---
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# --- Log Files ---
+*.log
