@@ -1,0 +1,6 @@
+include README.md
+include LICENSE
+
+recursive-include volsense_core *
+recursive-include volsense_inference *
+recursive-include models *.pt *.pkl *.json *.meta.json

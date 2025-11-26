@@ -1,0 +1,84 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "volsense"
+version = "1.0.2"
+description = "Explainable volatility forecasting and signal intelligence framework"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "Rahul Karthik", email = "rahul.m.karthik@gmail.com" }
+]
+
+keywords = [
+  "volatility",
+  "time-series",
+  "deep-learning",
+  "explainable-ai",
+  "quantitative-finance",
+  "trading-signals",
+]
+
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Office/Business :: Financial",
+]
+
+dependencies = [
+  "numpy>=1.24",
+  "pandas>=2.0",
+  "scipy>=1.11",
+  "arch>=6.3.0",
+  "statsmodels>=0.14",
+  "torch>=2.2",
+  "torchvision>=0.17",
+  "torchaudio>=2.2",
+  "matplotlib>=3.8",
+  "seaborn>=0.13",
+  "plotly>=5.18",
+  "yfinance>=0.2.40",
+  "requests>=2.31",
+  "scikit-learn>=1.3",
+  "tqdm>=4.66",
+  "streamlit>=1.33"
+]
+
+[project.optional-dependencies]
+notebook = [
+  "jupyterlab>=4.0",
+  "notebook>=7",
+  "ipykernel",
+  "ipywidgets"
+]
+explain = [
+  "numba>=0.57",
+  "cloudpickle>=2.2"
+]
+dev = [
+  "pytest>=7.4",
+  "pytest-cov",
+  "black",
+  "isort",
+  "mypy"
+]
+
+[project.urls]
+Homepage = "https://github.com/rahulmkarthik/VolSense"
+Source = "https://github.com/rahulmkarthik/VolSense"
+Issues = "https://github.com/rahulmkarthik/VolSense/issues"
+
+[tool.setuptools.packages.find]
+include = ["volsense_core*", "volsense_inference*"]
+exclude = ["notebooks*", "docs*", "tests*", "venv*"]
+
+[project.scripts]
+volsense-train = "volsense_core.cli.train_model:main"
+volsense-forecast = "volsense_inference.forecast:main"
