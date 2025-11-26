@@ -1,128 +1,115 @@
 import os
+import json
 import builtins
-from typing import Optional, List
+from typing import Optional
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
+from alphacouncil.persistence import get_daily_cache
 
-# The SignalEngine expects to be in a Jupyter notebook. We mock 'display' to silence it.
+# --- MONKEY PATCH ---
 try:
     display
 except NameError:
-    def display(obj):
-        pass
+    def display(obj): pass
     builtins.display = display
+# --------------------
 
-# Import from your vendored library
 from volsense_inference.forecast_engine import Forecast
 from volsense_inference.signal_engine import SignalEngine
+from volsense_inference.sector_mapping import get_ticker_type_map
 
-# ------------------------------------------------------------------
-# 1. The Service (Singleton to manage heavy model loading)
-# ------------------------------------------------------------------
 class VolSenseService:
     _instance = None
     _forecast_engine: Optional[Forecast] = None
 
     @classmethod
     def get_instance(cls):
-        """Returns the singleton instance of the service."""
         if cls._instance is None:
             cls._instance = VolSenseService()
         return cls._instance
 
     def __init__(self):
-        # Configuration - adjust these paths if your setup differs
-        self.model_version = "v507" # Using the larger model by default
-        # Point to the models folder inside the vendored module
+        self.model_version = "v507"
         self.checkpoints_dir = os.path.join(
             os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 
             "modules", "VolSense", "models"
         )
         
     def _ensure_loaded(self):
-        """Lazy loader: Only loads PyTorch model when actually requested."""
         if self._forecast_engine is None:
-            print(f"🔄 VolSenseService: Loading model {self.model_version} from {self.checkpoints_dir}...")
-            try:
-                self._forecast_engine = Forecast(
-                    model_version=self.model_version,
-                    checkpoints_dir=self.checkpoints_dir,
-                    start="2010-01-01" # Start date for feature fetch
-                )
-                print("✅ VolSenseService: Model loaded successfully.")
-            except Exception as e:
-                raise RuntimeError(f"Failed to load VolSense model: {e}")
+            print(f"🔄 VolSenseService: Loading model {self.model_version}...")
+            self._forecast_engine = Forecast(
+                model_version=self.model_version,
+                checkpoints_dir=self.checkpoints_dir,
+                start="2010-01-01"
+            )
 
-    def analyze_ticker(self, ticker: str) -> str:
+    # UPDATED: No more @lru_cache. We use file persistence instead.
+    def get_rich_data(self, ticker: str) -> dict:
+        cache = get_daily_cache()
+        
+        # 1. CHECK CACHE FIRST (Speed: Instant)
+        cached_result = cache.get_valid_entry(ticker)
+        if cached_result:
+            print(f"⚡ CACHE HIT: Returning saved data for {ticker}")
+            return cached_result
+
+        # 2. CACHE MISS: Run Heavy Inference (Speed: Slow)
+        print(f"🐢 CACHE MISS: Running VolSense Inference for {ticker}...")
         self._ensure_loaded()
         
-        # FIX: Single-ticker Z-scores return NaN because std() of 1 item is undefined.
-        # We must fetch a "Reference Universe" to calculate relative stats.
-        reference_tickers = ["SPY", "QQQ", "IWM", "GLD", "TLT", "VXX"]
-        
-        # Ensure target is in the list, but don't duplicate
-        universe = list(set([ticker] + reference_tickers))
-        
-        # 1. Run Forecast on the whole group
+        # Inject Reference Universe
+        universe = list(set([ticker, "SPY", "QQQ", "VXX", "GLD", "TLT"]))
         preds = self._forecast_engine.run(tickers=universe)
         
-        # 2. Pass to Signal Engine (Now valid because N > 1)
-        sig_engine = SignalEngine(model_version=self.model_version)
-        sig_engine.set_data(preds)
-        sig_engine.compute_signals(enrich_with_sectors=True)
+        sig = SignalEngine(model_version=self.model_version)
+        sig.set_data(preds)
+        sig.compute_signals(enrich_with_sectors=True)
         
-        # 3. Get Text Summary ONLY for the requested ticker
-        return sig_engine.ticker_summary(ticker)
+        if ticker not in sig.signals["ticker"].values:
+             return {"error": f"No signal generated for {ticker}"}
 
-    def analyze_market_sectors(self) -> str:
-        """Runs a broader market scan to get sector trends."""
-        self._ensure_loaded()
-        
-        # For a "Market Scan", we usually need a representative list.
-        # We'll use a small subset of major tickers to proxy the sectors for speed.
-        # (Scanning 500 tickers might be too slow for an interactive agent right now)
-        proxy_universe = [
-            "SPY", "QQQ", "XLE", "XLF", "XLK", "XLV", "XLI", "XLU", "GLD", "TLT"
-        ]
-        
-        preds = self._forecast_engine.run(tickers=proxy_universe)
-        
-        sig_engine = SignalEngine(model_version=self.model_version)
-        sig_engine.set_data(preds)
-        sig_engine.compute_signals(enrich_with_sectors=True)
-        
-        # Get the summary dataframe and convert to string
-        summary_df = sig_engine.sector_summary()
-        return summary_df.to_markdown(index=False)
+        row = sig.signals[sig.signals["ticker"] == ticker].iloc[0]
+        type_map = get_ticker_type_map(self.model_version)
+        asset_type = type_map.get(ticker, "Equity")
 
-# ------------------------------------------------------------------
-# 2. The LangChain Tool Definitions
-# ------------------------------------------------------------------
+        # Build Payload
+        result_payload = {
+            "ticker": ticker,
+            "type": asset_type,
+            "sector": str(row.get("sector", "Unknown")),
+            "metrics": {
+                "current_vol": round(float(row.get("today_vol", 0)), 4),
+                "forecast_5d": round(float(row.get("forecast_vol", 0)), 4),
+                "vol_spread_pct": round(float(row.get("vol_spread", 0)), 4),
+                "z_score": round(float(row.get("vol_zscore", 0)), 2),
+                "term_spread_10v5": round(float(row.get("term_spread_10v5", 0)), 4),
+            },
+            "context": {
+                "regime": str(row.get("regime_flag", "Normal")),
+                "sector_z_score": round(float(row.get("sector_z", 0)), 2),
+                "rank_in_sector": round(float(row.get("rank_sector", 0.5)), 2),
+                "heuristic_signal": str(row.get("position", "neutral"))
+            }
+        }
+
+        # 3. SAVE TO DISK
+        cache.store_entry(ticker, result_payload)
+        
+        return result_payload
 
 class TickerInput(BaseModel):
-    ticker: str = Field(description="The stock ticker symbol to analyze (e.g. 'AAPL', 'NVDA')")
+    ticker: str = Field(description="The stock ticker symbol (e.g. 'NVDA')")
 
-@tool("get_volatility_forecast", args_schema=TickerInput)
-def get_volatility_forecast(ticker: str) -> str:
+@tool("get_vol_metrics", args_schema=TickerInput)
+def get_vol_metrics(ticker: str) -> str:
     """
-    Retrieves the quantitative volatility forecast, regime, and signal for a given ticker.
-    Use this tool to get the technical view on a stock.
-    Returns a text summary including Z-scores, forecasts, and regime flags.
+    Returns RICH volatility metrics including spreads, sector ranks, and heuristics.
+    Use this to determine directional volatility exposure.
     """
     service = VolSenseService.get_instance()
     try:
-        return service.analyze_ticker(ticker.upper())
+        data = service.get_rich_data(ticker.upper())
+        return json.dumps(data) 
     except Exception as e:
-        return f"Error analyzing {ticker}: {str(e)}"
-
-@tool("get_sector_trends")
-def get_sector_trends() -> str:
-    """
-    Retrieves the current volatility heatmap of market sectors.
-    Use this to understand if specific sectors (Tech, Energy, etc.) are under stress.
-    """
-    service = VolSenseService.get_instance()
-    try:
-        return service.analyze_market_sectors()
-    except Exception as e:
-        return f"Error analyzing sectors: {str(e)}"
+        return json.dumps({"error": str(e)})
