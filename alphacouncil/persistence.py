@@ -16,14 +16,12 @@ class DailyCacheManager:
         self.filename = f"vol_cache_{self.today}.json"
         self.file_path = os.path.join(LOG_DIR, self.filename)
         
-        print(f"[DEBUG] Active Cache File: {self.file_path}")
         self._ensure_file_exists()
         self._cache = self._load_cache()
 
     def _ensure_file_exists(self):
         """Creates a fresh log file for the new day if missing."""
         if not os.path.exists(self.file_path):
-            print(f"[DEBUG] New day detected. Creating {self.filename}...")
             try:
                 with open(self.file_path, "w") as f:
                     json.dump({}, f)
@@ -41,7 +39,6 @@ class DailyCacheManager:
         try:
             with open(self.file_path, "w") as f:
                 json.dump(self._cache, f, indent=2)
-            print(f"[DEBUG] ✅ Logged {len(self._cache)} entries to {self.filename}")
         except Exception as e:
             print(f"[ERROR] Failed to write log: {e}")
 
