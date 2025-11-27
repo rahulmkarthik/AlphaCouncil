@@ -4,11 +4,19 @@ from typing import List, Literal, Optional
 # --- Technical Agent Output ---
 class TechnicalSignal(BaseModel):
     ticker: str
-    signal: Literal["BUY", "SELL", "WAIT", "HEDGE"]
-    confidence: float = Field(description="Confidence score between 0.0 and 1.0 based on signal strength")
-    regime: Literal["Low Vol", "Normal", "High Vol Spike", "Extreme Stress"]
-    key_drivers: List[str] = Field(description="Top 3 reasons (e.g., 'Sector Rank > 0.9', 'Negative Vol Spread', 'Z-Score Breakout')")
-    reasoning: str = Field(description="A concise, single-sentence summary of the technical view.")
+    
+    # UPDATED: Broader vocabulary matching SignalEngine 2.0
+    signal: Literal["BUY", "SELL", "WAIT", "HEDGE", "STRONG_BUY", "STRONG_SELL"] 
+    
+    confidence: float = Field(description="Confidence score (0.0-1.0) derived from signal strength")
+    
+    # UPDATED: Allow new regimes like 'spike', 'calm', etc.
+    regime: str = Field(description="Volatility Regime (e.g. 'Spike', 'Normal', 'Calm')")
+    
+    # UPDATED: Context for the new momentum factors
+    key_drivers: List[str] = Field(description="Top reasons (e.g. 'Positive 20d Trend', 'Term Structure Inversion')")
+    
+    reasoning: str = Field(description="Concise summary of the trade rationale")
 
 # --- Fundamental Agent Output ---
 class SectorIntel(BaseModel):

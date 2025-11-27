@@ -100,18 +100,28 @@ class VolSenseService:
                 "ticker": ticker,
                 "type": type_map.get(ticker, "Equity"),
                 "sector": str(row.get("sector", "Unknown")),
+                
+                # --- NEW: Explicit Signal Block ---
+                "signal": {
+                    "position": str(row.get("position", "NEUTRAL")),
+                    "action": str(row.get("action", "Wait")),
+                    "strength": float(row.get("signal_strength", 0.0))
+                },
+                # ----------------------------------
+
                 "metrics": {
                     "current_vol": round(float(row.get("today_vol", 0)), 4),
-                    "forecast_1d": round(float(row.get("forecast_vol_1", 
-                                     preds.loc[preds["ticker"] == ticker, "pred_vol_1"].values[0] 
-                                     if "pred_vol_1" in preds.columns else 0)), 4),
+                    # ... (keep existing 1d/5d/10d forecasts) ...
+                    "forecast_1d": round(float(row.get("forecast_vol_1", preds.loc[preds["ticker"] == ticker, "pred_vol_1"].values[0] if "pred_vol_1" in preds.columns else 0)), 4),
                     "forecast_5d": round(float(row.get("forecast_vol", 0)), 4),
-                    "forecast_10d": round(float(row.get("forecast_vol_10", 
-                                      preds.loc[preds["ticker"] == ticker, "pred_vol_10"].values[0] 
-                                      if "pred_vol_10" in preds.columns else 0)), 4),
+                    "forecast_10d": round(float(row.get("forecast_vol_10", preds.loc[preds["ticker"] == ticker, "pred_vol_10"].values[0] if "pred_vol_10" in preds.columns else 0)), 4),
                     "vol_spread_pct": round(float(row.get("vol_spread", 0)), 4),
                     "z_score": round(float(row.get("vol_zscore", 0)), 2),
                     "term_spread_10v5": round(float(row.get("term_spread_10v5", 0)), 4),
+                    
+                    # --- NEW: Add Momentum for Context ---
+                    "momentum_5d": round(float(row.get("momentum_5d", 0)), 4),
+                    "momentum_20d": round(float(row.get("momentum_20d", 0)), 4),
                 },
                 "context": {
                     "regime": str(row.get("regime_flag", "Normal")),
@@ -143,15 +153,18 @@ class VolSenseService:
             return cached_result
 
         # 2. CACHE MISS -> TRIGGER BATCH HYDRATION
-        print(f"🐢 CACHE MISS for {ticker}. Triggering Market Hydration...")
-        self.hydrate_market()
+        # Use the map to check validity before running a 1-minute job
+        if ticker in self.universe_map:
+            print(f"🐢 CACHE MISS for {ticker}. Triggering Market Hydration...")
+            self.hydrate_market()
+            
+            # 3. RE-CHECK
+            cached_result = cache.get_valid_entry(ticker)
+            if cached_result:
+                return cached_result
         
-        # 3. RE-CHECK
-        cached_result = cache.get_valid_entry(ticker)
-        if cached_result:
-            return cached_result
-        
-        return {"error": f"Ticker {ticker} not in v507 universe."}
+        # 4. FAILURE
+        return {"error": f"Ticker {ticker} not in v507 universe or hydration failed."}
 
 class TickerInput(BaseModel):
     ticker: str = Field(description="The stock ticker symbol (e.g. 'NVDA')")
