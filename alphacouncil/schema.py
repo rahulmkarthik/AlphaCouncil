@@ -25,3 +25,11 @@ class SectorIntel(BaseModel):
     major_events: List[str] = Field(description="List of specific earnings, regulatory, or macro events found")
     sentiment_score: float = Field(description="-1.0 (Bearish) to 1.0 (Bullish)")
     relevance_to_ticker: str = Field(description="How these sector-wide events specifically affect the requested ticker.")
+
+# --- Risk Agent Output ---
+class RiskAssessment(BaseModel):
+    verdict: Literal["APPROVED", "REJECTED", "MODIFIED"]
+    reason: str = Field(description="Explanation for the verdict")
+    approved_quantity: int = Field(description="Number of shares approved (0 if rejected)")
+    max_exposure_allowed: float = Field(description="The dollar limit calculated for this trade")
+    risk_score: int = Field(description="1-10 scale of trade danger")
