@@ -12,6 +12,10 @@ from alphacouncil.graph import app as graph_app
 from alphacouncil.tools.vol_tools import VolSenseService
 from volsense_inference.signal_engine import SignalEngine
 from volsense_inference.sector_mapping import get_color
+from volsense_inference.sector_mapping import get_sector_map
+
+# Load the allowed universe keys for validation
+VALID_UNIVERSE = set(get_sector_map("v507").keys())
 
 # ─────────────────────────────────────────────────────────────
 # 1. PAGE CONFIG & CSS
@@ -147,17 +151,26 @@ with st.sidebar:
     st.title("AlphaCouncil")
     st.caption("v1.0 • Gemini 3.0 • VolSense")
     
+    # Input
     ticker_input = st.text_input("Ticker Symbol", value="NVDA", help="Enter a US Equity Ticker").upper()
     
-    if st.button("Convene Council 🔔", type="primary", width='stretch'):
-        with st.spinner(f"📡 Summoning Agents for {ticker_input}..."):
-            try:
-                # INVOKE THE GRAPH
-                response = graph_app.invoke({"ticker": ticker_input})
-                st.session_state["council_result"] = response
-                st.session_state["active_ticker"] = ticker_input
-            except Exception as e:
-                st.error(f"Council Adjourned unexpectedly: {e}")
+    # Validation Status
+    is_valid = ticker_input in VALID_UNIVERSE
+    
+    if st.button("Convene Council 🔔", type="primary", use_container_width=True):
+        if not is_valid:
+            st.error(f"⛔ {ticker_input} is not in the v507 Universe.")
+            st.warning("Please enter a supported ticker (e.g., NVDA, SPY, BTC-USD).")
+        else:
+            # ONLY RUN IF VALID
+            with st.spinner(f"📡 Summoning Agents for {ticker_input}..."):
+                try:
+                    # INVOKE THE GRAPH
+                    response = graph_app.invoke({"ticker": ticker_input})
+                    st.session_state["council_result"] = response
+                    st.session_state["active_ticker"] = ticker_input
+                except Exception as e:
+                    st.error(f"Council Adjourned unexpectedly: {e}")
 
     st.markdown("---")
     st.markdown("**System Status**")
