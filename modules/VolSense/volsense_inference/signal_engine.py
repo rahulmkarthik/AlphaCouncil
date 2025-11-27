@@ -19,6 +19,13 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from typing import Optional
 
+try:
+    from IPython.display import display  # type: ignore
+except ImportError:
+    def display(obj):
+        """Fallback display helper when IPython is unavailable."""
+        print(obj)
+
 from volsense_inference.sector_mapping import get_sector_map, get_color
 
 
@@ -30,8 +37,10 @@ def _coerce_to_long(df_in: pd.DataFrame) -> pd.DataFrame:
     Coerce forecast inputs to the canonical snapshot format.
 
     Accepts either:
-      1) Long standardized format with ['ticker','horizon','forecast_vol',('today_vol'| 'realized_vol'), 'date']
-      2) Wide format from ForecastEngine with ['ticker','pred_vol_<H>', ... , ('realized_vol'), ('date')]
+      1) Long standardized format with ['ticker','horizon','forecast_vol',('today_vol'| 'realized_vol'), 'date', 
+         ('momentum_5d'), ('momentum_10d'), ('momentum_20d')]
+      2) Wide format from ForecastEngine with ['ticker','pred_vol_<H>', ... , ('realized_vol'), ('date'), 
+         ('momentum_5d'), ('momentum_10d'), ('momentum_20d')]
 
     :param df_in: Input forecast DataFrame in long or wide format.
     :type df_in: pandas.DataFrame
@@ -42,75 +51,116 @@ def _coerce_to_long(df_in: pd.DataFrame) -> pd.DataFrame:
     df = df_in.copy()
     df.columns = [c.lower() for c in df.columns]
 
-    # Case 1: Already in long standardized format
+    # Ensure momentum columns exist (fallback to 0.0)
+    mom_cols = ["momentum_5d", "momentum_10d", "momentum_20d"]
+    for m in mom_cols:
+        if m not in df.columns:
+            df[m] = 0.0
+
+    # Define standard columns to return
+    base_cols = ["date", "ticker", "horizon", "forecast_vol", "today_vol"]
+    
+    # Case 1: Already in long format
     if {"ticker", "horizon", "forecast_vol"}.issubset(df.columns):
         if "today_vol" not in df.columns and "realized_vol" in df.columns:
             df["today_vol"] = df["realized_vol"]
         elif "today_vol" not in df.columns:
             df["today_vol"] = np.nan
+        
         df["date"] = pd.to_datetime(df.get("date", pd.Timestamp.today().normalize()))
-        return df[["date", "ticker", "horizon", "forecast_vol", "today_vol"]]
+        return df[base_cols + mom_cols]
 
-    # Case 2: ForecastEngine wide format (pred_vol_1, pred_vol_5, ...)
+    # Case 2: Wide format
     pred_cols = [c for c in df.columns if c.startswith("pred_vol_")]
     if "ticker" in df.columns and pred_cols:
         df["date"] = pd.Timestamp.today().normalize()
+        
         long = df.melt(
-            id_vars=["ticker", "date"],
+            # FIX: Must include ALL momentum columns in id_vars to preserve them
+            id_vars=["ticker", "date"] + mom_cols, 
             value_vars=pred_cols,
             var_name="horizon_col",
             value_name="forecast_vol",
         )
         long["horizon"] = long["horizon_col"].str.extract(r"(\d+)").astype(int)
         long["today_vol"] = df["realized_vol"].reindex(long.index, fill_value=np.nan)
-        return long[["date", "ticker", "horizon", "forecast_vol", "today_vol"]]
+
+        return long[base_cols + mom_cols]
 
     raise ValueError("Input DataFrame format not recognized for SignalEngine.")
 
 
 # --- Position Classification (multi-layer) utility ---
 def classify_position(row):
-    """
-    Classify a trading position from cross-sectional and term spreads.
+    """Classify snapshot metrics into a discrete positioning regime.
 
-    :param row: Mapping-like object (e.g. pandas.Series) containing at minimum:
-                 ``vol_zscore`` (float). Optional keys: ``vol_spread`` (float)
-                 and ``term_spread_10v5`` (float).
-    :type row: Mapping[str, float]
-    :returns: Position label: ``"long"``, ``"short"``, or ``"neutral"``.
+    :param row: Snapshot row containing volatility z-scores, term spreads, and momentum features.
+    :type row: pandas.Series
+    :return: Position label capturing the dominant volatility regime for the ticker.
     :rtype: str
-
-    :raises KeyError: If ``vol_zscore`` is missing from ``row``.
-
-    .. note::
-       Decision thresholds (hard-coded):
-         - z-score threshold: > 1.0 → high, < -1.0 → low
-         - vol_spread threshold: > 0.07 / < -0.07  (±7%)
-         - term_spread_10v5 threshold: > 0.035 / < -0.035 (±3.5%)
-
-    Example
-    -------
-    >>> classify_position({'vol_zscore': 1.2, 'vol_spread': 0.08})
-    'long'
-    >>> classify_position({'vol_zscore': -1.3, 'term_spread_10v5': -0.05})
-    'short'
     """
-    z = row["vol_zscore"]
-    spot_spread = row.get("vol_spread", np.nan)
-    term_spread = row.get("term_spread_10v5", np.nan)
+    z = row.get("vol_zscore", 0)
+    term_spread = row.get("term_spread_10v5", 0)
+    
+    # Momentum Stack
+    m5 = row.get("momentum_5d", 0)
+    m20 = row.get("momentum_20d", 0)
 
-    # LONG → clearly high vol and rising curve
-    if (z > 1.0) and ((spot_spread > 0.07) or (term_spread > 0.035)):
-        return "long"
+    # 1. CRISIS (Crash)
+    # High Vol + Backwardation + 1-Month Downtrend
+    if z > 1.5 and term_spread < -0.02 and m20 < -0.05:
+        return "DEFENSIVE"  # Cash / Puts
 
-    # SHORT → clearly low vol and falling curve
-    elif (z < -1.0) and ((spot_spread < -0.07) or (term_spread < -0.035)):
-        return "short"
+    # 2. VOL BREAKOUT (Gamma Squeeze?)
+    # Vol spiking + Short-term price spike + Long-term uptrend
+    elif z > 1.0 and term_spread > 0 and m5 > 0.03 and m20 > 0:
+        return "LONG_VOL_TREND"  # Calls / Straddles
 
-    # otherwise NEUTRAL
-    else:
-        return "neutral"
+    # 3. MEAN REVERSION (Fear Fading)
+    # Vol extreme high, but price is stabilizing (short-term flat)
+    elif z > 2.0 and abs(m5) < 0.02:
+        return "SHORT_VOL"  # Iron Condor / Short Vega
 
+    # 4. BUY THE DIP (New Signal!)
+    # Vol is slightly elevated (fear), but 20d trend is still UP.
+    elif 0.5 < z < 1.5 and m5 < -0.02 and m20 > 0.02:
+        return "BUY_DIP" # Bullish Reversal
+
+    # 5. QUIET BULL (Steady State)
+    # Low vol + Positive 1-month trend
+    elif z < -0.5 and m20 > 0.01:
+        return "LONG_EQUITY"  # Buy Stock
+
+    # 6. BEAR RALLY (Trap)
+    # Price popping (5d up) but in a downtrend (20d down)
+    elif m5 > 0.02 and m20 < -0.05:
+        return "FADE_RALLY" # Short Stock / Bear Call Spread
+
+    # 7. COMPLACENCY
+    elif z < -1.5:
+        return "LONG_TAIL_HEDGE"
+
+    return "NEUTRAL"
+
+def get_action_recommendation(signal: str) -> str:
+    """Translate a regime label into an executable trading action.
+
+    :param signal: Position classification generated by :func:`classify_position`.
+    :type signal: str
+    :return: Textual recommendation outlining the preferred trading structure.
+    :rtype: str
+    """
+    mapping = {
+        "DEFENSIVE": "Cash / Buy Puts",
+        "LONG_VOL_TREND": "Long Straddle / Gamma",
+        "SHORT_VOL": "Sell Iron Condor",
+        "BUY_DIP": "Buy Calls / Bull Spread", # <--- NEW
+        "LONG_EQUITY": "Long Stock",
+        "FADE_RALLY": "Short Stock / Bear Spread", # <--- NEW
+        "LONG_TAIL_HEDGE": "Buy Cheap Protection",
+        "NEUTRAL": "Wait"
+    }
+    return mapping.get(signal, "Wait")
 
 # ============================================================
 # ⚙️ SignalEngine: Cross-Sectional and Sector Intelligence
@@ -338,6 +388,10 @@ class SignalEngine:
         # --- 6. Position Classification
         df["position"] = df.apply(classify_position, axis=1)
 
+        # --- 7. New Signals ---
+        df["position"] = df.apply(classify_position, axis=1)
+        df["action"] = df["position"].apply(get_action_recommendation)
+
         self.signals = df
         return df
 
@@ -560,7 +614,8 @@ class SignalEngine:
 
     def plot_position_counts(self, horizon: int = 5):
         """
-        Plot counts of long/neutral/short positions across tickers for a horizon.
+        Plot counts of advanced position signals across tickers for a horizon.
+        Now supports the full quadrant taxonomy (e.g. DEFENSIVE, BUY_DIP).
 
         :param horizon: Forecast horizon to summarize.
         :type horizon: int
@@ -572,16 +627,33 @@ class SignalEngine:
             raise RuntimeError("Run .compute_signals() first.")
 
         df = self.signals[self.signals["horizon"] == horizon]
-        counts = (
-            df["position"]
-            .value_counts()
-            .reindex(["long", "neutral", "short"])
-            .fillna(0)
-        )
+        
+        # Count all unique signals present in the data
+        counts = df["position"].value_counts()
+        
+        # Define a semantic color map for our new signals
+        # Green = Bullish, Red = Bearish, Orange = Defensive/Volatility, Gray = Neutral
+        color_map = {
+            "LONG_EQUITY": "#00FF00",      # Bright Green (Strong Bull)
+            "BUY_DIP": "#90EE90",          # Light Green (Tactical Bull)
+            "LONG_VOL_TREND": "#FFA500",   # Orange (Vol Breakout)
+            "SHORT_VOL": "#FF69B4",        # Pink (Mean Reversion)
+            "DEFENSIVE": "#FF0000",        # Red (Crash Risk)
+            "FADE_RALLY": "#8B0000",       # Dark Red (Bearish)
+            "LONG_TAIL_HEDGE": "#FFFF00",  # Yellow (Cheap Puts)
+            "NEUTRAL": "#808080"           # Gray
+        }
+        
+        # Generate color list in the order of the counts index
+        # Fallback to blue if a signal isn't in our map
+        palette = [color_map.get(label, "#1f77b4") for label in counts.index]
 
-        plt.figure(figsize=(6, 3))
-        sns.barplot(x=counts.index, y=counts.values, palette=["green", "gray", "red"])
-        plt.title(f"Signal Position Counts ({horizon}d)")
+        plt.figure(figsize=(10, 5)) # Made wider to fit long labels
+        sns.barplot(x=counts.index, y=counts.values, palette=palette)
+        
+        plt.title(f"Signal Regime Distribution ({horizon}d)")
         plt.ylabel("Number of Tickers")
+        plt.xlabel("Regime Classification")
+        plt.xticks(rotation=45, ha="right") # Rotate labels so they don't overlap
         plt.tight_layout()
         plt.show()

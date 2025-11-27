@@ -144,16 +144,29 @@ class Forecast:
         """
         end_date = datetime.today().date()
         start_date = (end_date - timedelta(days=150)).strftime("%Y-%m-%d")
-        df_recent = build_dataset(
+        
+        # 1. Fetch Raw Data (Contains 'close')
+        df_raw = build_dataset(
             tickers=tickers,
             start=start_date,
             end=end_date,
-            window=self.vol_window,  # <-- use realized-vol lookback, not model window
+            window=self.vol_window,
             cache_dir=None,
             show_progress=True,
         )
-        # Feature engineering to match training
-        df_recent = build_features(df_recent)
+        
+        # 2. Engineer Features (Likely drops 'close')
+        df_recent = build_features(df_raw)
+        
+        # 3. FIX: Merge 'close' back in if it was dropped
+        if "close" in df_raw.columns and "close" not in df_recent.columns:
+            # Merge on keys to ensure alignment
+            df_recent = df_recent.merge(
+                df_raw[["date", "ticker", "close"]], 
+                on=["date", "ticker"], 
+                how="left"
+            )
+            
         self.df_recent = df_recent
         return df_recent
 
@@ -183,6 +196,26 @@ class Forecast:
             features=self.features,
         )
         preds = attach_realized(preds, df_recent)
+        
+        # --- NEW: Multi-Horizon Momentum ---
+        if "close" in df_recent.columns:
+            # Group once to avoid re-grouping 3 times
+            grp = df_recent.sort_values("date").groupby("ticker")["close"]
+            
+            # Calculate 5d, 10d, 20d momentum (Snapshot of the LATEST value)
+            mom_5 = grp.apply(lambda x: x.pct_change(5).iloc[-1]).rename("momentum_5d")
+            mom_10 = grp.apply(lambda x: x.pct_change(10).iloc[-1]).rename("momentum_10d")
+            mom_20 = grp.apply(lambda x: x.pct_change(20).iloc[-1]).rename("momentum_20d")
+            
+            # Merge all into preds
+            preds = preds.merge(mom_5, on="ticker", how="left")
+            preds = preds.merge(mom_10, on="ticker", how="left")
+            preds = preds.merge(mom_20, on="ticker", how="left")
+        else:
+            preds["momentum_5d"] = 0.0
+            preds["momentum_10d"] = 0.0
+            preds["momentum_20d"] = 0.0
+
         self.predictions = preds
         print("✅ Forecast complete.")
 

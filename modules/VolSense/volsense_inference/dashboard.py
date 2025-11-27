@@ -531,8 +531,18 @@ if run_btn or st.session_state.forecast_data is not None:
                 )
             with c4:
                 position_filter = st.selectbox(
-                    "Position",
-                    ["All", "long", "neutral", "short"],
+                    "Signal",
+                    [
+                        "All", 
+                        "BUY_DIP", 
+                        "LONG_EQUITY", 
+                        "LONG_VOL_TREND", 
+                        "FADE_RALLY", 
+                        "SHORT_VOL", 
+                        "DEFENSIVE", 
+                        "LONG_TAIL_HEDGE", 
+                        "NEUTRAL"
+                    ],
                     index=0,
                     key="sig_position",
                 )
@@ -584,6 +594,7 @@ if run_btn or st.session_state.forecast_data is not None:
                 "rank_universe",
                 "rank_sector",
                 "position",
+                "action",
                 "regime_flag",
             ]
             cols = [c for c in cols if c in table.columns]
