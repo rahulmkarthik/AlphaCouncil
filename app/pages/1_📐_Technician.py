@@ -187,7 +187,7 @@ if len(df) > 0:
         textposition='middle center'
     )
     
-    st.plotly_chart(fig_tree, use_container_width=True)
+    st.plotly_chart(fig_tree, width='stretch')
 else:
     st.info("No tickers match the current filter criteria.")
 
@@ -220,7 +220,7 @@ with col_table:
         df_display["Term Spread"] = df_display["Term Spread"].round(4)
         df_display["Mom 5d"] = (df_display["Mom 5d"] * 100).round(2).astype(str) + "%"
         
-        st.dataframe(df_display, hide_index=True, use_container_width=True)
+        st.dataframe(df_display, hide_index=True, width='stretch')
     else:
         st.info("No setups available with current filters.")
 
@@ -247,7 +247,7 @@ with col_regime:
             legend=dict(orientation="v", x=1.1, y=0.5)
         )
         
-        st.plotly_chart(fig_regime, use_container_width=True)
+        st.plotly_chart(fig_regime, width='stretch')
     else:
         st.info("No regime data available.")
 
@@ -284,11 +284,11 @@ if len(df) > 0:
         xaxis=dict(tickangle=-45)
     )
     
-    st.plotly_chart(fig_sector, use_container_width=True)
+    st.plotly_chart(fig_sector, width='stretch')
 else:
     st.info("No sector data available with current filters.")
 
 # 11. FOOTER: DEBUG INFO
 with st.expander("🛠️ Raw Data Preview"):
-    st.dataframe(df.head(10), use_container_width=True)
+    st.dataframe(df.head(10), width='stretch')
     st.caption(f"Showing 10 of {len(df)} filtered tickers")

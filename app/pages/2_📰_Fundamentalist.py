@@ -190,7 +190,7 @@ with st.sidebar:
             st.warning("⚠️ Ticker not in v507 universe")
     
     # Analyze button
-    if st.button("🔍 Analyze", type="primary", use_container_width=True):
+    if st.button("🔍 Analyze", type="primary", width='stretch'):
         analyze_query(mode, query)
         st.rerun()
     
@@ -203,7 +203,7 @@ with st.sidebar:
             timestamp = analysis["timestamp"].strftime("%H:%M:%S")
             label = f"{analysis['query']} ({timestamp})"
             
-            if st.button(label, key=f"history_{i}", use_container_width=True):
+            if st.button(label, key=f"history_{i}", width='stretch'):
                 st.session_state["current_analysis"] = analysis
                 st.rerun()
 
@@ -233,7 +233,7 @@ if st.session_state["current_analysis"]:
     with col2:
         st.markdown("#### Sentiment Analysis")
         fig_sentiment = render_sentiment_gauge(intel.sentiment_score)
-        st.plotly_chart(fig_sentiment, use_container_width=True)
+        st.plotly_chart(fig_sentiment, width='stretch')
     
     st.divider()
     
