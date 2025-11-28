@@ -4,7 +4,7 @@ from dataclasses import dataclass
 class RiskLimits:
     MAX_SECTOR_EXPOSURE: float = 0.30  # Max 30% in one sector (e.g., Tech)
     MAX_SINGLE_POSITION: float = 0.10  # Max 10% in one ticker
-    MIN_CASH_BUFFER: float = 5000.0    # Always keep $5k cash
+    MIN_CASH_BUFFER: float = 10000.0    # Always keep $10k cash
     MAX_DAILY_DRAWDOWN: float = 0.02   # 2% portfolio stop-loss (future scope)
 
     # Allow specific exceptions (optional)

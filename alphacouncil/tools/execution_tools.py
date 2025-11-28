@@ -1,15 +1,22 @@
-from langchain_core.tools import tool
+from alphacouncil.utils.langchain_stub import tool
 from alphacouncil.execution.portfolio import PortfolioService
 from alphacouncil.execution.risk_rules import DEFAULT_LIMITS
 from alphacouncil.data.live_feed import LiveMarketFeed
+from alphacouncil.execution.limits import compute_position_headroom
 
-portfolio = PortfolioService()
+# Global: Market Feed (Keep global because it manages the cache/singleton)
 market_feed = LiveMarketFeed.get_instance()
+
+# Global: PortfolioService REMOVED to prevent stale state.
+# We now instantiate it fresh inside every tool.
 
 @tool
 def get_portfolio_summary() -> str:
     """Returns cash, holdings, and total exposure using LIVE prices."""
+    # FIX: Instantiate fresh to read the latest JSON state from disk
+    portfolio = PortfolioService()
     state = portfolio.get_state()
+    
     lines = [f"💰 CASH: ${state.cash_balance:,.2f}"]
     
     total_exposure = 0.0
@@ -23,7 +30,7 @@ def get_portfolio_summary() -> str:
             live_price = market_feed.get_price(ticker) or pos.avg_price
             val = pos.quantity * live_price
             
-            # Calculate Unrealized P&L
+            # Calculate Unrealized P&L (Preserved from your original file)
             pnl_pct = ((live_price / pos.avg_price) - 1) * 100
             
             total_exposure += val
@@ -41,43 +48,101 @@ def check_trade_risk(ticker: str, action: str, quantity: int) -> str:
         action: BUY/SELL
         quantity: Number of shares
     """
-    # 1. Get Real Price
+    # FIX: Instantiate fresh to see the updated cash/holdings from recent trades
+    portfolio = PortfolioService()
+    state = portfolio.get_state()
+
     price = market_feed.get_price(ticker)
     if price is None:
         return f"REJECTED: Could not fetch live price for {ticker}"
-        
-    state = portfolio.get_state()
-    total_cost = quantity * price
+
+    action = action.upper()
     ticker = ticker.upper()
-    
-    # 2. Cash Check
-    if action.upper() == "BUY":
+    total_cost = quantity * price
+
+    if action == "BUY":
         if state.cash_balance < total_cost:
-            return f"REJECTED: Insufficient Cash. Needed ${total_cost:,.2f}, Have ${state.cash_balance:,.2f}"
+            return (
+                f"REJECTED: Insufficient Cash. Needed ${total_cost:,.2f}, "
+                f"Have ${state.cash_balance:,.2f}"
+            )
 
-    # 3. Concentration Check (using live equity value)
-    current_holdings_val = sum(
-        (market_feed.get_price(t) or p.avg_price) * p.quantity 
-        for t, p in state.holdings.items()
-    )
-    total_equity = state.cash_balance + current_holdings_val
-    
-    if action.upper() == "BUY":
-        # Projected value of THIS position after trade
-        existing_val = 0
-        if ticker in state.holdings:
-            existing_val = state.holdings[ticker].quantity * price
-            
-        new_position_val = existing_val + total_cost
-        concentration_pct = new_position_val / total_equity
-        
-        if concentration_pct > DEFAULT_LIMITS.MAX_SINGLE_POSITION:
-             return f"REJECTED: Concentration Risk. {ticker} would be {concentration_pct:.1%} of portfolio (Limit: {DEFAULT_LIMITS.MAX_SINGLE_POSITION:.0%})"
+        headroom = compute_position_headroom(ticker, price, state=state)
 
-    return f"APPROVED (Est. Price: ${price:.2f}, Total: ${total_cost:,.2f})"
+        if headroom["cash_max_qty"] <= 0:
+            return (
+                f"REJECTED: Cash buffer of ${DEFAULT_LIMITS.MIN_CASH_BUFFER:,.0f} "
+                f"would be violated (deployable ${headroom['cash_available_for_trade']:,.2f})."
+            )
+
+        if quantity > headroom["cash_max_qty"]:
+            return (
+                f"REJECTED: Trade needs ${total_cost:,.2f} but only "
+                f"${headroom['cash_available_for_trade']:,.2f} is deployable after the cash buffer "
+                f"of ${DEFAULT_LIMITS.MIN_CASH_BUFFER:,.0f}."
+            )
+
+        total_equity = headroom["total_equity"]
+        if total_equity > 0:
+            current_sector_pct = headroom["current_sector_value"] / total_equity
+            projected_sector_pct = (
+                headroom["current_sector_value"] + quantity * price
+            ) / total_equity
+
+            if headroom["sector_max_qty"] <= 0:
+                return (
+                    f"REJECTED: {headroom['sector']} sector already at "
+                    f"{current_sector_pct:.1%} (limit {headroom['sector_limit_pct']:.0%})."
+                )
+
+            if quantity > headroom["sector_max_qty"]:
+                return (
+                    f"REJECTED: {headroom['sector']} exposure would reach "
+                    f"{projected_sector_pct:.1%} (limit {headroom['sector_limit_pct']:.0%})."
+                )
+
+            current_position_pct = headroom["existing_position_value"] / total_equity
+            projected_position_pct = (
+                headroom["existing_position_value"] + quantity * price
+            ) / total_equity
+
+            if headroom["single_position_max_qty"] <= 0:
+                return (
+                    f"REJECTED: {ticker} already at {current_position_pct:.1%} of "
+                    f"portfolio (limit {DEFAULT_LIMITS.MAX_SINGLE_POSITION:.0%})."
+                )
+
+            if quantity > headroom["single_position_max_qty"]:
+                return (
+                    f"REJECTED: {ticker} would represent {projected_position_pct:.1%} of the "
+                    f"portfolio (limit {DEFAULT_LIMITS.MAX_SINGLE_POSITION:.0%})."
+                )
+
+        projected_cash = state.cash_balance - total_cost
+        projected_sector_pct = (
+            headroom["current_sector_value"] + quantity * price
+        ) / headroom["total_equity"] if headroom["total_equity"] > 0 else 0.0
+        projected_position_pct = (
+            headroom["existing_position_value"] + quantity * price
+        ) / headroom["total_equity"] if headroom["total_equity"] > 0 else 0.0
+
+        return (
+            f"APPROVED (Est. Price: ${price:.2f}, Total: ${total_cost:,.2f}, "
+            f"Cash After: ${projected_cash:,.2f}, Sector: {projected_sector_pct:.1%}, "
+            f"Ticker: {projected_position_pct:.1%})"
+        )
+
+    if action == "SELL":
+        projected_cash = state.cash_balance + total_cost
+        return (
+            f"APPROVED (Est. Price: ${price:.2f}, Total: ${total_cost:,.2f}, "
+            f"Cash After: ${projected_cash:,.2f})"
+        )
+
+    return f"REJECTED: Unsupported action '{action}'"
 
 @tool
-def get_current_price(ticker: str) -> str: # <--- NEW TOOL FOR AGENT
+def get_current_price(ticker: str) -> str:
     """Fetches the latest real-time price for a ticker."""
     price = market_feed.get_price(ticker)
     if price:

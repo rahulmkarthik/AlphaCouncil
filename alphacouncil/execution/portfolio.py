@@ -4,6 +4,9 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any
 from pydantic import BaseModel, Field
 
+from alphacouncil.execution.limits import compute_position_headroom
+from alphacouncil.execution.risk_rules import DEFAULT_LIMITS
+
 # 1. Define Data Models (for type safety)
 class Position(BaseModel):
     ticker: str
@@ -89,6 +92,48 @@ class PortfolioService:
         if action == "BUY":
             if self.state.cash_balance < total_cost:
                 return f"❌ REJECTED: Insufficient Cash (${self.state.cash_balance:.2f} < ${total_cost:.2f})"
+
+            limits = compute_position_headroom(ticker, price, state=self.state)
+            total_equity = limits["total_equity"]
+            breaches = []
+
+            if limits["cash_max_qty"] <= 0 or qty > limits["cash_max_qty"]:
+                breaches.append(
+                    f"cash buffer ${DEFAULT_LIMITS.MIN_CASH_BUFFER:,.0f} (deployable ${limits['cash_available_for_trade']:,.2f})"
+                )
+
+            if total_equity > 0:
+                current_sector_pct = limits["current_sector_value"] / total_equity
+                projected_sector_pct = (
+                    limits["current_sector_value"] + qty * price
+                ) / total_equity
+                if limits["sector_max_qty"] <= 0 or qty > limits["sector_max_qty"]:
+                    breaches.append(
+                        f"{limits['sector']} sector {projected_sector_pct:.1%} (limit {limits['sector_limit_pct']:.0%})"
+                    )
+
+                current_position_pct = limits["existing_position_value"] / total_equity
+                projected_position_pct = (
+                    limits["existing_position_value"] + qty * price
+                ) / total_equity
+                if (
+                    limits["single_position_max_qty"] <= 0
+                    or qty > limits["single_position_max_qty"]
+                ):
+                    breaches.append(
+                        f"{ticker} weight {projected_position_pct:.1%} (limit {DEFAULT_LIMITS.MAX_SINGLE_POSITION:.0%})"
+                    )
+
+            if breaches:
+                allowed = limits["max_qty"]
+                headroom_note = (
+                    f" max {allowed} shares" if allowed >= 0 else " no capacity"
+                )
+                detail = "; ".join(breaches)
+                return (
+                    "❌ REJECTED: Risk limits exceeded — "
+                    f"{detail}. Allowed{headroom_note}."
+                )
             
             # Update Cash
             self.state.cash_balance -= total_cost

@@ -2,10 +2,13 @@ import os
 import pandas as pd
 import json
 import builtins
-from typing import Optional, List
-from langchain_core.tools import tool
+from collections import defaultdict
+from typing import Optional
+
 from pydantic import BaseModel, Field
+
 from alphacouncil.persistence import get_daily_cache
+from alphacouncil.utils.langchain_stub import tool
 
 # --- MONKEY PATCH ---
 try:
@@ -166,6 +169,15 @@ class VolSenseService:
         # 4. FAILURE
         return {"error": f"Ticker {ticker} not in v507 universe or hydration failed."}
 
+
+def _fetch_vol_payload(ticker: str) -> str:
+    service = VolSenseService.get_instance()
+    try:
+        data = service.get_rich_data(ticker.upper())
+        return json.dumps(data)
+    except Exception as exc:  # pragma: no cover - defensive path
+        return json.dumps({"error": str(exc)})
+
 class TickerInput(BaseModel):
     ticker: str = Field(description="The stock ticker symbol (e.g. 'NVDA')")
 
@@ -175,9 +187,60 @@ def get_vol_metrics(ticker: str) -> str:
     Returns RICH volatility metrics including spreads, sector ranks, and heuristics.
     Use this to determine directional volatility exposure.
     """
-    service = VolSenseService.get_instance()
-    try:
-        data = service.get_rich_data(ticker.upper())
-        return json.dumps(data) 
-    except Exception as e:
-        return json.dumps({"error": str(e)})
+    return _fetch_vol_payload(ticker)
+
+
+@tool("get_volatility_forecast", args_schema=TickerInput)
+def get_volatility_forecast(ticker: str) -> str:
+    """Compatibility wrapper mirroring the original forecast tool name."""
+    return _fetch_vol_payload(ticker)
+
+
+@tool("get_sector_trends")
+def get_sector_trends() -> str:
+    """Summarize cached sector signals from the latest hydration run."""
+
+    cache = get_daily_cache()
+    if not getattr(cache, "_cache", {}):
+        try:
+            VolSenseService.get_instance().hydrate_market()
+        except Exception as exc:  # pragma: no cover - defensive path
+            return json.dumps({"error": str(exc)})
+
+    if not cache._cache:
+        return json.dumps({"error": "No volatility cache available for today."})
+
+    sector_stats: dict[str, list[float]] = defaultdict(list)
+    signal_counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+
+    for payload in cache._cache.values():
+        sector = payload.get("sector", "Unknown")
+        signal_block = payload.get("signal", {}) or {}
+        strength = signal_block.get("strength")
+        position = (signal_block.get("position") or "NEUTRAL").upper()
+
+        if strength is not None:
+            try:
+                sector_stats[sector].append(float(strength))
+            except (TypeError, ValueError):
+                pass
+
+        signal_counts[sector][position] += 1
+
+    summary = []
+    for sector, strengths in sector_stats.items():
+        avg_strength = sum(strengths) / len(strengths) if strengths else 0.0
+        counts = signal_counts.get(sector, {})
+        summary.append(
+            {
+                "sector": sector,
+                "avg_signal_strength": round(avg_strength, 4),
+                "positions": counts,
+                "observation_count": sum(counts.values()),
+            }
+        )
+
+    # Sort sectors by descending signal strength for readability
+    summary.sort(key=lambda item: item["avg_signal_strength"], reverse=True)
+
+    return json.dumps({"sectors": summary})
