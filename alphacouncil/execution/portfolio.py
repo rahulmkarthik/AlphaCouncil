@@ -32,6 +32,11 @@ class PortfolioService:
         self.file_path = os.path.join(os.getcwd(), data_dir, filename)
         self._ensure_dir_exists(data_dir)
         self.state = self._load_or_create()
+        
+        # --- FIX: Force save immediately if file is missing ---
+        if not os.path.exists(self.file_path):
+            print(f"🆕 Creating new portfolio ledger at {self.file_path}")
+            self.save()
 
     def _ensure_dir_exists(self, data_dir):
         if not os.path.exists(data_dir):
