@@ -18,7 +18,7 @@ AlphaCouncil operates as a Directed Acyclic Graph (DAG) with three specialized a
     * *Tools:* Tavily Search API / RAG.
     * *Logic:* Scans for earnings calls, lawsuits, and macro headwinds to reject "gambling" setups.
 
-3.  **The Risk Manager (CQF Agent):**
+3.  **The Risk Manager (Risk and Execution Agent):**
     * *Role:* Portfolio construction & Limits.
     * *Logic:* Enforces Sector Limits, Correlation checks, and CVaR constraints.
 
