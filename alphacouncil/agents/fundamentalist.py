@@ -1,8 +1,9 @@
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.tools import tool
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_community.tools.tavily_search import TavilySearchResults
+
 from alphacouncil.schema import SectorIntel
+from alphacouncil.utils.langchain_stub import tool
 
 # 1. Define Batched Tool
 @tool
