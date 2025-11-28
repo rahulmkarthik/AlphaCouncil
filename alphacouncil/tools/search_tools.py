@@ -1,6 +1,6 @@
 import os
 from langchain_community.tools.tavily_search import TavilySearchResults
-from langchain_core.tools import tool
+from alphacouncil.utils.langchain_stub import tool
 
 # Ensure API key is set (or load from .env)
 # os.environ["TAVILY_API_KEY"] = "your-key-here" 
