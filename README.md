@@ -39,7 +39,7 @@ pip install -r requirements.txt
 ### Usage
 Run the dashboard to see the agents in action:
 ```bash
-streamlit run app/dashboard.py
+streamlit run app/Home.py
 ```
 
 ## 🧠 Core Technologies
