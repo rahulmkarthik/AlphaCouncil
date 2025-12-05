@@ -212,7 +212,7 @@ def export_csv_button(df: pd.DataFrame, filename: str, label: str = "📥 Export
         data=csv,
         file_name=filename,
         mime="text/csv",
-        width='stretch',
+        width="stretch",
     )
 
 
@@ -337,7 +337,7 @@ TICKERS = [
 
 with st.sidebar:
     model_version = st.text_input(
-        "Model version", value="v507"
+        "Model version", value="volnetx"
     )  # matches your checkpoints naming
     checkpoints_dir = st.text_input("Checkpoints directory", value="models")
     default_tickers = ", ".join(TICKERS)
@@ -345,7 +345,7 @@ with st.sidebar:
         "Tickers (comma-separated)", value=default_tickers, height=90
     )
     start_date = st.date_input("Start fetch (for features)", value=date(2005, 1, 1))
-    run_btn = st.button("🚀 Run Forecasts", type="primary", width='stretch')
+    run_btn = st.button("🚀 Run Forecasts", type="primary", width="stretch")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Header
@@ -416,7 +416,7 @@ if run_btn or st.session_state.forecast_data is not None:
             )
             st.dataframe(
                 _safe_style_format(preds[ordered_cols], _pretty_number),
-                width='stretch',
+                width="stretch",
                 height=380,
             )
             # Export CSV button for the overview table
@@ -436,7 +436,7 @@ if run_btn or st.session_state.forecast_data is not None:
             chosen_horizon = st.selectbox("Horizon", horizons, key="horizon_ta")
 
             fig = fcast.plot(selected_ticker, show=False)
-            st.pyplot(fig, width='stretch')
+            st.pyplot(fig, width="stretch")
             st.info(analytics.describe(selected_ticker, f"pred_vol_{chosen_horizon}"))
 
         # ──────────────────────────────────────────────────────────────────────
@@ -481,7 +481,7 @@ if run_btn or st.session_state.forecast_data is not None:
                 ax=ax,
             )
             ax.set_title(f"Sector Volatility Heatmap  —  {latest_date.date()}")
-            st.pyplot(fig_hm, width='stretch')
+            st.pyplot(fig_hm, width="stretch")
 
             # Top sectors by mean z at selected horizon
             top_n = st.slider("Top sectors to display", 3, 12, 8)
@@ -500,7 +500,7 @@ if run_btn or st.session_state.forecast_data is not None:
             axb.invert_yaxis()
             axb.set_xlabel("Mean Sector Z-score")
             axb.set_title(f"Top {top_n} Sectors (H={h_sel}d)")
-            st.pyplot(fig_bar, width='stretch')
+            st.pyplot(fig_bar, width="stretch")
 
         # ──────────────────────────────────────────────────────────────────────
         # SIGNAL TABLE
@@ -618,7 +618,7 @@ if run_btn or st.session_state.forecast_data is not None:
                             "rank_sector": lambda x: f"{x:.2f}",
                         }
                     ),
-                    width='stretch',
+                    width="stretch",
                     height=520,
                 )
 

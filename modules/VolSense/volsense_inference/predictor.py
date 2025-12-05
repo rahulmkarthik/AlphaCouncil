@@ -227,9 +227,10 @@ def predict_single(
 
     # ultimate fallback for older global models where we forgot to store target_col:
     # global models (v5xx) *always* train on realized_vol_log right now.
+    # VolNetX also uses realized_vol_log by default
     if not looks_like_log:
         arch_name = str(meta.get("arch", "")).lower()
-        if "globalvolforecaster" in arch_name:
+        if "globalvolforecaster" in arch_name or "volnetx" in arch_name:
             looks_like_log = True
 
     if looks_like_log:

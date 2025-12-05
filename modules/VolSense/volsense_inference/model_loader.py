@@ -32,6 +32,8 @@ import json
 import pickle
 import importlib
 import torch
+import numpy as np
+from volsense_core.utils.scalers import TorchStandardScaler
 
 
 # ------------------------------------------------------------
@@ -88,6 +90,30 @@ def _import_class(module_path: str, class_name: str):
     """
     mod = importlib.import_module(module_path)
     return getattr(mod, class_name)
+
+
+def _reconstruct_scalers(meta_scalers: dict) -> dict:
+    """
+    Reconstruct TorchStandardScaler objects from metadata dictionary.
+    
+    :param meta_scalers: Dictionary of {ticker: scaler_state_dict} from meta.json.
+    :return: Dictionary of {ticker: TorchStandardScaler}.
+    """
+    if not meta_scalers:
+        return None
+        
+    scalers = {}
+    for ticker, state in meta_scalers.items():
+        sc = TorchStandardScaler()
+        # Rehydrate state (converting lists back to tensors)
+        if "mean_" in state and state["mean_"] is not None:
+            sc.mean_ = torch.tensor(state["mean_"], dtype=torch.float32)
+        if "std_" in state and state["std_"] is not None:
+            sc.std_ = torch.tensor(state["std_"], dtype=torch.float32)
+        if "feature_names_in_" in state:
+            sc.feature_names_in_ = state["feature_names_in_"]
+        scalers[ticker] = sc
+    return scalers
 
 
 # ------------------------------------------------------------
@@ -149,6 +175,7 @@ def _load_full_pickle(path: str, device: str):
 
     # Enrich from sidecar meta.json (single source of truth)
     sidecar = path.replace(".full.pkl", ".meta.json")
+    scalers = None
     if os.path.exists(sidecar):
         try:
             with open(sidecar, "r") as f:
@@ -158,11 +185,16 @@ def _load_full_pickle(path: str, device: str):
             ticker_to_id = side_meta.get("ticker_to_id", ticker_to_id)
             if hasattr(model, "input_size"):
                 model.input_size = len(features)
+            
+            # Reconstruct scalers if present
+            if "scalers" in side_meta:
+                scalers = _reconstruct_scalers(side_meta["scalers"])
+                
         except Exception:
             pass
 
     model.to(device).eval()
-    return model, meta, None, ticker_to_id, features
+    return model, meta, scalers, ticker_to_id, features
 
 
 # ------------------------------------------------------------
@@ -221,6 +253,13 @@ def _load_bundle_pickle(path: str, device: str):
         "feat_dropout_p": 0.1,
         "variational_dropout_p": 0.1,
     }
+    
+    # VolNetX specific defaults
+    if "VolNetX" in arch:
+        defaults["horizons"] = horizons # VolNetX expects list
+        # Remove n_horizons if present to avoid confusion/errors if not expected
+        if "n_horizons" in defaults:
+             del defaults["n_horizons"]
 
     # Fill missing keys in arch_params from defaults
     for k, v in defaults.items():
@@ -234,8 +273,11 @@ def _load_bundle_pickle(path: str, device: str):
 
     # --- Final consistency fix ---
     model.input_size = len(features)
+    
+    # Reconstruct scalers
+    scalers = _reconstruct_scalers(meta.get("scalers"))
 
-    return model, meta, None, ticker_to_id, features
+    return model, meta, scalers, ticker_to_id, features
 
 
 # ------------------------------------------------------------
@@ -271,7 +313,14 @@ def _load_meta_pth(base: str, device: str):
     ticker_to_id = meta.get("ticker_to_id", {})
     n_tickers = len(ticker_to_id) if ticker_to_id else 1
     horizons = meta.get("horizons", [1])
+    
+    # Convert horizons to appropriate format based on model architecture:
+    # - GlobalVolForecaster expects n_horizons (int) in its constructor
+    # - VolNetX expects horizons (list) in its constructor
+    # The loader converts list→int for GlobalVol, but VolNetX-specific
+    # handling passes the list directly (see lines 339-343)
     n_horizons = len(horizons) if isinstance(horizons, list) else int(horizons)
+    
     features = meta.get("features", [])
     if not features:
         features = ["return"] + meta.get("extra_features", [])
@@ -292,6 +341,18 @@ def _load_meta_pth(base: str, device: str):
         "feat_dropout_p": 0.1,
         "variational_dropout_p": 0.1,
     }
+    
+    # VolNetX specific defaults
+    if "VolNetX" in arch:
+        defaults["horizons"] = horizons  # VolNetX expects list
+        # Remove GlobalVolForecaster-specific params
+        for param in ["n_horizons", "attention", "residual_head", "feat_dropout_p", "variational_dropout_p"]:
+            defaults.pop(param, None)
+        # Add VolNetX-specific params (matching its constructor)
+        defaults.setdefault("feat_dropout", 0.1)
+        defaults.setdefault("use_transformer", True)
+        defaults.setdefault("use_ticker_embedding", True)
+        defaults.setdefault("use_feature_attention", True)
 
     # Fill missing keys from defaults
     for k, v in defaults.items():
@@ -301,13 +362,58 @@ def _load_meta_pth(base: str, device: str):
     ModelClass = _import_class(module_path, arch)
     model = ModelClass(**arch_params)
     state_dict = torch.load(pth_path, map_location=device)
+    
+    # --- Critical validation: check state_dict compatibility ---
+    # For VolNetX and GlobalVol, the first layer should match input_size
+    # This catches cases where meta.json features are wrong but .pth is correct
+    if hasattr(model, "input_size") and "VolNetX" in arch:
+        # Check if embedding layer or first LSTM input size matches
+        if "lstm.weight_ih_l0" in state_dict:
+            # LSTM input weight shape: [hidden*4, input_size + emb_dim]
+            saved_input_dim = state_dict["lstm.weight_ih_l0"].shape[1]
+            expected_input_dim = model.input_size
+            if model.emb is not None:
+                expected_input_dim += model.emb.embedding_dim
+            
+            if saved_input_dim != expected_input_dim:
+                raise ValueError(
+                    f"State dict dimension mismatch for VolNetX: "
+                    f"saved weights expect {saved_input_dim} input dims, "
+                    f"but model reconstructed with {expected_input_dim} dims "
+                    f"(input_size={model.input_size}, features={features}). "
+                    f"This indicates corrupted meta.json with wrong feature list."
+                )
+    
     model.load_state_dict(state_dict, strict=False)
     model.to(device).eval()
 
-    # --- Final consistency fix ---
+    # --- Secondary validation: ensure dimensions match ---
+    if hasattr(model, "input_size"):
+        actual_input_size = getattr(model, "input_size")
+        expected_input_size = len(features)
+        if actual_input_size != expected_input_size:
+            raise ValueError(
+                f"Model input_size mismatch: model expects {actual_input_size} features, "
+                f"but meta.json specifies {expected_input_size} features {features}. "
+                f"This indicates a corrupted checkpoint or feature list reconstruction error."
+            )
+    
+    if hasattr(model, "n_tickers"):
+        actual_n_tickers = getattr(model, "n_tickers")
+        if actual_n_tickers != n_tickers:
+            raise ValueError(
+                f"Model n_tickers mismatch: model has {actual_n_tickers} tickers, "
+                f"but meta.json specifies {n_tickers} tickers. "
+                f"This model cannot be used with the provided ticker_to_id mapping."
+            )
+    
+    # --- Final consistency fix (safe after validation) ---
     model.input_size = len(features)
+    
+    # Reconstruct scalers
+    scalers = _reconstruct_scalers(meta.get("scalers"))
 
-    return model, meta, None, ticker_to_id, features
+    return model, meta, scalers, ticker_to_id, features
 
 
 # ------------------------------------------------------------
