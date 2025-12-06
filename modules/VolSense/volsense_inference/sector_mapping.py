@@ -787,7 +787,7 @@ def get_sector_map(version: str = "v109") -> dict[str, str]:
     version = version.lower()
     if version in ("v109", "109", "small"):
         return SECTOR_MAP_109
-    elif version in ("v507", "507", "large"):
+    elif version in ("v507", "507", "large", "volnetx"):
         return SECTOR_MAP_507
     else:
         raise ValueError(f"Unknown model version: {version}")

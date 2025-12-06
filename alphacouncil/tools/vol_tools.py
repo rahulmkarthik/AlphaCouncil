@@ -34,7 +34,7 @@ class VolSenseService:
         return cls._instance
 
     def __init__(self):
-        self.model_version = "v507" 
+        self.model_version = "volnetx"
         # UPGRADE: Target the full 507-ticker universe
         self.universe_map = get_sector_map("v507") 
         self.checkpoints_dir = os.path.join(
@@ -59,7 +59,7 @@ class VolSenseService:
         cache = get_daily_cache()
         tickers = list(self.universe_map.keys())
         
-        print(f"🌊 HYDRATING MARKET: Batch inference on {len(tickers)} tickers (v507)...")
+        print(f"🌊 HYDRATING MARKET: Batch inference on {len(tickers)} tickers (volnetx)...")
         
         # 1. BATCH PREDICTION (One big network call)
         preds = self._forecast_engine.run(tickers=tickers)
