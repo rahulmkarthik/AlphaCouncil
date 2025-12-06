@@ -90,8 +90,11 @@ class VolSenseService:
                 else:
                     z_scores_by_horizon[h] = 0.0
             
-            # Use horizon=5 as the primary row for other metrics (most common trading horizon)
+            # Use horizon=5 as the primary row for most metrics (most common trading horizon)
             row = row_slice[row_slice["horizon"] == 5].iloc[0] if not row_slice[row_slice["horizon"] == 5].empty else row_slice.iloc[0]
+            
+            # Use horizon=1 row for vol_spread and today_vol (only computed for h=1)
+            row_h1 = row_slice[row_slice["horizon"] == 1].iloc[0] if not row_slice[row_slice["horizon"] == 1].empty else row
             
             # Serialize History (180 days)
             t_hist = full_hist[full_hist["ticker"] == ticker].sort_values("date").tail(180)
@@ -123,12 +126,12 @@ class VolSenseService:
                 # ----------------------------------
 
                 "metrics": {
-                    "current_vol": round(float(row.get("today_vol", 0)), 4),
+                    "current_vol": round(float(row_h1.get("today_vol", 0)), 4),
                     # ... (keep existing 1d/5d/10d forecasts) ...
                     "forecast_1d": round(float(row.get("forecast_vol_1", preds.loc[preds["ticker"] == ticker, "pred_vol_1"].values[0] if "pred_vol_1" in preds.columns else 0)), 4),
                     "forecast_5d": round(float(row.get("forecast_vol", 0)), 4),
                     "forecast_10d": round(float(row.get("forecast_vol_10", preds.loc[preds["ticker"] == ticker, "pred_vol_10"].values[0] if "pred_vol_10" in preds.columns else 0)), 4),
-                    "vol_spread_pct": round(float(row.get("vol_spread", 0)), 4),
+                    "vol_spread_pct": round(float(row_h1.get("vol_spread", 0)), 4),
                     "z_score": z_scores_by_horizon.get(5, 0.0),  # Default to 5d for backward compat
                     "z_score_1d": z_scores_by_horizon.get(1, 0.0),
                     "z_score_5d": z_scores_by_horizon.get(5, 0.0),
