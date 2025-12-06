@@ -207,15 +207,22 @@ class Forecast:
         )
         preds = attach_realized(preds, df_recent)
         
-        # --- NEW: Multi-Horizon Momentum ---
-        if "close" in df_recent.columns:
-            # Group once to avoid re-grouping 3 times
-            grp = df_recent.sort_values("date").groupby("ticker")["close"]
+        # --- Multi-Horizon Momentum (using cumulative returns) ---
+        # Since df_recent has 'return' (daily log/simple returns), we compute
+        # momentum as cumulative return over the last N days
+        if "return" in df_recent.columns:
+            def calc_momentum(grp, n_days):
+                """Calculate cumulative return over last n_days."""
+                grp = grp.sort_values("date")
+                if len(grp) < n_days:
+                    return 0.0
+                # Use last n_days of returns, compound them: (1+r1)*(1+r2)*...*(1+rN) - 1
+                last_n = grp["return"].tail(n_days)
+                return (1 + last_n).prod() - 1
             
-            # Calculate 5d, 10d, 20d momentum (Snapshot of the LATEST value)
-            mom_5 = grp.apply(lambda x: x.pct_change(5).iloc[-1]).rename("momentum_5d")
-            mom_10 = grp.apply(lambda x: x.pct_change(10).iloc[-1]).rename("momentum_10d")
-            mom_20 = grp.apply(lambda x: x.pct_change(20).iloc[-1]).rename("momentum_20d")
+            mom_5 = df_recent.groupby("ticker").apply(lambda g: calc_momentum(g, 5)).rename("momentum_5d")
+            mom_10 = df_recent.groupby("ticker").apply(lambda g: calc_momentum(g, 10)).rename("momentum_10d")
+            mom_20 = df_recent.groupby("ticker").apply(lambda g: calc_momentum(g, 20)).rename("momentum_20d")
             
             # Merge all into preds
             preds = preds.merge(mom_5, on="ticker", how="left")
