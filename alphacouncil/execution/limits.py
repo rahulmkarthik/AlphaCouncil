@@ -65,7 +65,9 @@ def compute_position_headroom(
     cash_balance = state.cash_balance
     cash_available = max(cash_balance - DEFAULT_LIMITS.MIN_CASH_BUFFER, 0.0)
 
-    if price <= 0:
+    # FIX: Check for NaN or invalid price before division
+    import math
+    if price <= 0 or math.isnan(price):
         cash_max_qty = 0
         sector_max_qty = 0
         single_max_qty = 0

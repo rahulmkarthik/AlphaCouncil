@@ -8,6 +8,7 @@ from alphacouncil.tools.execution_tools import (
 )
 from alphacouncil.execution.limits import compute_position_headroom
 from alphacouncil.execution.risk_rules import DEFAULT_LIMITS
+from alphacouncil.execution.portfolio import PortfolioService
 from alphacouncil.schema import RiskAssessment, TechnicalSignal, SectorIntel
 
 # 1. Initialize Gemini
@@ -31,14 +32,21 @@ INPUT CONTEXT:
 
 Output strictly valid JSON matching the RiskAssessment schema.
 """
+import math
 
 
 def _resolve_live_price(ticker: str, fallback: float = 100.0) -> float:
     """Fetch the latest price, falling back to a neutral placeholder on failures."""
     try:
         raw = get_current_price.invoke(ticker)
-        return float(raw) if raw and "Unavailable" not in raw else fallback
-    except Exception:
+        if raw and "Unavailable" not in raw:
+            price = float(raw)
+            # Check for NaN or invalid values
+            if math.isnan(price) or price <= 0:
+                return fallback
+            return price
+        return fallback
+    except (ValueError, TypeError, Exception):
         return fallback
 
 
@@ -54,12 +62,86 @@ def risk_manager_agent(state):
     live_price = _resolve_live_price(ticker)
 
     # -------------------------------------------------------
-    # 1. SOFT GATES (Strategy Quality) - SKIPPED IF MANUAL
+    # 0. PARSE ACTION FROM REQUEST (BUY or SELL)
     # -------------------------------------------------------
-    # If the user is NOT driving, we apply strict quality control.
+    action = "BUY"  # default
+    if is_manual and messages:
+        last_msg = messages[-1].content if messages else ""
+        action_match = re.search(r"requests to (\w+)", last_msg, re.IGNORECASE)
+        if action_match:
+            action = action_match.group(1).upper()
+    elif tech_signal:
+        # Infer from signal
+        if tech_signal.signal in ["SELL", "STRONG_SELL"]:
+            action = "SELL"
+
+    # -------------------------------------------------------
+    # SELL ORDERS: SIMPLIFIED VALIDATION (No Limit Checks)
+    # -------------------------------------------------------
+    if action == "SELL":
+        # Parse quantity
+        requested_qty = 0
+        if is_manual and messages:
+            last_msg = messages[-1].content
+            match = re.search(r"requests to \w+ (\d+) shares", last_msg)
+            if match:
+                requested_qty = int(match.group(1))
+            else:
+                requested_qty = 10
+        else:
+            # For automated sells, use technician confidence
+            base_size = 5000.0
+            if tech_signal and tech_signal.confidence >= 0.8:
+                base_size = 8000.0
+            if live_price > 0:
+                requested_qty = int(base_size / live_price)
+        
+        target_qty = max(requested_qty, 0)
+        
+        # Check if we have enough shares to sell
+        portfolio = PortfolioService()
+        state_data = portfolio.get_state()
+        position = state_data.holdings.get(ticker)
+        
+        if not position:
+            return {"risk_assessment": RiskAssessment(
+                verdict="REJECTED",
+                reason=f"HARD STOP: No position in {ticker} to sell.",
+                approved_quantity=0,
+                max_exposure_allowed=0.0,
+                risk_score=10
+            )}
+        
+        if position.quantity < target_qty:
+            # Reduce to available quantity
+            target_qty = position.quantity
+        
+        if target_qty <= 0:
+            return {"risk_assessment": RiskAssessment(
+                verdict="REJECTED",
+                reason=f"HARD STOP: No shares available to sell.",
+                approved_quantity=0,
+                max_exposure_allowed=0.0,
+                risk_score=10
+            )}
+        
+        # SELL is approved - no sector/position limits apply
+        proceeds = target_qty * live_price
+        return {"risk_assessment": RiskAssessment(
+            verdict="APPROVED",
+            reason=f"SELL order approved for {target_qty} shares. Estimated proceeds: ${proceeds:,.2f}",
+            approved_quantity=target_qty,
+            max_exposure_allowed=proceeds,
+            risk_score=2
+        )}
+
+    # -------------------------------------------------------
+    # BUY ORDERS: FULL VALIDATION (Original Logic)
+    # -------------------------------------------------------
+    
+    # 1. SOFT GATES (Strategy Quality) - SKIPPED IF MANUAL
     if not is_manual:
         # Rule A: Technician Confidence Threshold
-        # Don't take weak signals from the bot
         if tech_signal.confidence < 0.60:
              return {"risk_assessment": RiskAssessment(
                 verdict="REJECTED",
@@ -68,7 +150,6 @@ def risk_manager_agent(state):
             )}
         
         # Rule B: Fundamental Veto
-        # Don't buy into a firestorm
         if fund_signal and fund_signal.risk_level == "HIGH" and fund_signal.sentiment_score < -0.2:
              return {"risk_assessment": RiskAssessment(
                 verdict="REJECTED",
@@ -76,12 +157,9 @@ def risk_manager_agent(state):
                 approved_quantity=0, max_exposure_allowed=0.0, risk_score=8
             )}
 
-    # -------------------------------------------------------
     # 2. PARSE TARGET QUANTITY
-    # -------------------------------------------------------
     requested_qty = 0
     if is_manual:
-        # Regex extract from "User manually requests to BUY 100 shares..."
         last_msg = messages[-1].content if messages else ""
         match = re.search(r"requests to \w+ (\d+) shares", last_msg)
         if match:
@@ -156,9 +234,7 @@ def risk_manager_agent(state):
         )
     allowable_capital = max(0.0, min(cap_candidates)) if cap_candidates else 0.0
 
-    # -------------------------------------------------------
-    # 3. THE HARD GATE (Solvency & Limits) - APPLIES TO ALL
-    # -------------------------------------------------------
+    # 3. THE HARD GATE (Solvency & Limits) - APPLIES TO ALL BUY ORDERS
     validation_msg = check_trade_risk.invoke(
         {"ticker": ticker, "action": "BUY", "quantity": target_qty}
     )
@@ -181,7 +257,7 @@ def risk_manager_agent(state):
         )
 
     context = f"""
-    REQUEST: Validate Trade for {ticker}
+    REQUEST: Validate BUY Trade for {ticker}
     MODE: {"MANUAL USER EXECUTION" if is_manual else "AUTOMATED STRATEGY"}
     PRICE: ${live_price:.2f}
     REQUESTED_QTY: {requested_qty}

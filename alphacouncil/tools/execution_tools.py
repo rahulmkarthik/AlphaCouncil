@@ -52,13 +52,27 @@ def check_trade_risk(ticker: str, action: str, quantity: int) -> str:
     portfolio = PortfolioService()
     state = portfolio.get_state()
 
+    import math
+    
+    # DEBUG: Log price lookup
     price = market_feed.get_price(ticker)
-    if price is None:
-        return f"REJECTED: Could not fetch live price for {ticker}"
+    print(f"[DEBUG check_trade_risk] Ticker: {ticker}, Raw price: {price}, Type: {type(price)}")
+    
+    if price is None or (isinstance(price, float) and math.isnan(price)):
+        # Try refreshing the market feed
+        print(f"[DEBUG] Price invalid for {ticker}, attempting refresh...")
+        market_feed.refresh_snapshot()
+        price = market_feed.get_price(ticker)
+        print(f"[DEBUG] After refresh - Price: {price}")
+        
+        if price is None or (isinstance(price, float) and math.isnan(price)):
+            return f"REJECTED: Could not fetch valid live price for {ticker}. Try clicking 'Refresh Market Data'."
 
     action = action.upper()
     ticker = ticker.upper()
     total_cost = quantity * price
+    
+    print(f"[DEBUG check_trade_risk] Total cost: {total_cost}, Cash: {state.cash_balance}")
 
     if action == "BUY":
         if state.cash_balance < total_cost:
@@ -68,11 +82,13 @@ def check_trade_risk(ticker: str, action: str, quantity: int) -> str:
             )
 
         headroom = compute_position_headroom(ticker, price, state=state)
+        print(f"[DEBUG check_trade_risk] Headroom: cash_max_qty={headroom['cash_max_qty']}, cash_available={headroom['cash_available_for_trade']}")
 
         if headroom["cash_max_qty"] <= 0:
             return (
                 f"REJECTED: Cash buffer of ${DEFAULT_LIMITS.MIN_CASH_BUFFER:,.0f} "
-                f"would be violated (deployable ${headroom['cash_available_for_trade']:,.2f})."
+                f"would be violated (deployable ${headroom['cash_available_for_trade']:,.2f}). "
+                f"Price: ${price:.2f}, Qty: {quantity}"
             )
 
         if quantity > headroom["cash_max_qty"]:

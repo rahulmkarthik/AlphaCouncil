@@ -47,7 +47,11 @@ alloc_data = []
 
 if state.holdings:
     for t, p in state.holdings.items():
-        price = market_feed.get_price(t) or p.avg_price
+        # FIX: Explicit None check to prevent NaN calculations
+        price = market_feed.get_price(t)
+        if price is None:
+            price = p.avg_price  # Fallback to cost basis
+        
         mkt_val = p.quantity * price
         
         # Aggregates
@@ -140,7 +144,7 @@ with col_charts_2:
                 yaxis_title="Realized P&L ($)",
                 xaxis_title=""
             )
-            fig_pnl.update_traces(line_color='#00FF00', fill_color='rgba(0,255,0,0.1)')
+            fig_pnl.update_traces(line_color='#00FF00', fillcolor='rgba(0,255,0,0.1)')
             st.plotly_chart(fig_pnl, width='stretch') # Replaced use_container_width
         else:
             st.info("No realized P&L events yet (Only Buys executed).")
@@ -159,10 +163,17 @@ with col_hold:
     else:
         rows = []
         for t, p in state.holdings.items():
-            curr_price = market_feed.get_price(t) or p.avg_price
+            # FIX: Explicit None check to prevent NaN in blotter
+            curr_price = market_feed.get_price(t)
+            if curr_price is None:
+                curr_price = p.avg_price  # Fallback to cost basis
+            
             mkt_val = p.quantity * curr_price
             pnl_val = mkt_val - (p.quantity * p.avg_price)
-            pnl_pct = (pnl_val / (p.quantity * p.avg_price)) * 100
+            
+            # Prevent division by zero
+            cost_basis = p.quantity * p.avg_price
+            pnl_pct = (pnl_val / cost_basis) * 100 if cost_basis > 0 else 0.0
             
             rows.append({
                 "Ticker": t,
