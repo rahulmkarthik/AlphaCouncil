@@ -110,3 +110,41 @@ class TorchStandardScaler:
             )
         out = Xt * (self.std_ + 1e-8) + self.mean_
         return out.cpu().numpy()
+
+    def state_dict(self) -> dict:
+        """
+        Return scaler state as a JSON-serializable dictionary.
+
+        This method enables checkpoint persistence by exporting the scaler's
+        internal parameters (mean, std, feature names) in a format that can
+        be saved to JSON and later restored via load_state_dict().
+
+        :return: Dictionary containing 'mean_', 'std_', and 'feature_names_in_'.
+                 Tensor values are converted to lists for JSON compatibility.
+        :rtype: dict
+        """
+        return {
+            "mean_": self.mean_.tolist() if self.mean_ is not None else None,
+            "std_": self.std_.tolist() if self.std_ is not None else None,
+            "feature_names_in_": self.feature_names_in_
+        }
+
+    def load_state_dict(self, state: dict) -> None:
+        """
+        Restore scaler state from a dictionary.
+
+        This method reconstructs the scaler's internal parameters from a
+        state dictionary previously created by state_dict(). Used during
+        model checkpoint loading.
+
+        :param state: Dictionary containing 'mean_', 'std_', and optionally 'feature_names_in_'.
+        :type state: dict
+        :return: None
+        :rtype: None
+        """
+        if state.get("mean_") is not None:
+            self.mean_ = torch.tensor(state["mean_"], dtype=torch.float32)
+        if state.get("std_") is not None:
+            self.std_ = torch.tensor(state["std_"], dtype=torch.float32)
+        if "feature_names_in_" in state:
+            self.feature_names_in_ = state["feature_names_in_"]

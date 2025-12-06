@@ -34,7 +34,7 @@ class VolSenseService:
         return cls._instance
 
     def __init__(self):
-        self.model_version = "v507" 
+        self.model_version = "volnetx"
         # UPGRADE: Target the full 507-ticker universe
         self.universe_map = get_sector_map("v507") 
         self.checkpoints_dir = os.path.join(
@@ -59,7 +59,7 @@ class VolSenseService:
         cache = get_daily_cache()
         tickers = list(self.universe_map.keys())
         
-        print(f"🌊 HYDRATING MARKET: Batch inference on {len(tickers)} tickers (v507)...")
+        print(f"🌊 HYDRATING MARKET: Batch inference on {len(tickers)} tickers (volnetx)...")
         
         # 1. BATCH PREDICTION (One big network call)
         preds = self._forecast_engine.run(tickers=tickers)
@@ -80,8 +80,21 @@ class VolSenseService:
             row_slice = sig.signals[sig.signals["ticker"] == ticker]
             if row_slice.empty:
                 continue
-                
-            row = row_slice.iloc[0]
+            
+            # Get z-scores for each horizon
+            z_scores_by_horizon = {}
+            for h in [1, 5, 10]:
+                h_row = row_slice[row_slice["horizon"] == h]
+                if not h_row.empty:
+                    z_scores_by_horizon[h] = round(float(h_row.iloc[0].get("vol_zscore", 0)), 2)
+                else:
+                    z_scores_by_horizon[h] = 0.0
+            
+            # Use horizon=5 as the primary row for most metrics (most common trading horizon)
+            row = row_slice[row_slice["horizon"] == 5].iloc[0] if not row_slice[row_slice["horizon"] == 5].empty else row_slice.iloc[0]
+            
+            # Use horizon=1 row for vol_spread and today_vol (only computed for h=1)
+            row_h1 = row_slice[row_slice["horizon"] == 1].iloc[0] if not row_slice[row_slice["horizon"] == 1].empty else row
             
             # Serialize History (180 days)
             t_hist = full_hist[full_hist["ticker"] == ticker].sort_values("date").tail(180)
@@ -113,13 +126,16 @@ class VolSenseService:
                 # ----------------------------------
 
                 "metrics": {
-                    "current_vol": round(float(row.get("today_vol", 0)), 4),
+                    "current_vol": round(float(row_h1.get("today_vol", 0)), 4),
                     # ... (keep existing 1d/5d/10d forecasts) ...
                     "forecast_1d": round(float(row.get("forecast_vol_1", preds.loc[preds["ticker"] == ticker, "pred_vol_1"].values[0] if "pred_vol_1" in preds.columns else 0)), 4),
                     "forecast_5d": round(float(row.get("forecast_vol", 0)), 4),
                     "forecast_10d": round(float(row.get("forecast_vol_10", preds.loc[preds["ticker"] == ticker, "pred_vol_10"].values[0] if "pred_vol_10" in preds.columns else 0)), 4),
-                    "vol_spread_pct": round(float(row.get("vol_spread", 0)), 4),
-                    "z_score": round(float(row.get("vol_zscore", 0)), 2),
+                    "vol_spread_pct": round(float(row_h1.get("vol_spread", 0)), 4),
+                    "z_score": z_scores_by_horizon.get(5, 0.0),  # Default to 5d for backward compat
+                    "z_score_1d": z_scores_by_horizon.get(1, 0.0),
+                    "z_score_5d": z_scores_by_horizon.get(5, 0.0),
+                    "z_score_10d": z_scores_by_horizon.get(10, 0.0),
                     "term_spread_10v5": round(float(row.get("term_spread_10v5", 0)), 4),
                     
                     # --- NEW: Add Momentum for Context ---

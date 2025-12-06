@@ -148,49 +148,9 @@ SECTOR_MAP_109 = {
     "F": "Consumer Discretionary",
 }
 
+
 # --- 507-ticker model (v507) --------------------------------
-
-# 1. Define the "True Universe" (507 Tickers)
-# Source: v507_full_ticker_list.txt (Minus BIL, BTDR)
-V507_TICKERS = [
-    "AAPL", "ABNB", "ABT", "ACI", "ACN", "ADBE", "ADI", "ADM", "ADNT", "ADSK", "AEE", "AEP", "AES", "AFL", "AGG", "AIG", 
-    "AJG", "ALB", "ALGN", "ALK", "ALL", "ALLY", "AMAT", "AMD", "AME", "AMGN", "AMP", "AMT", "AMZN", "ANET", "AON", "APA", 
-    "APD", "APH", "AR", "ARE", "ATO", "AVB", "AVGO", "AVY", "AWK", "AXP", "AZO", "BA", "BAC", "BALL", "BAX", "BBY", 
-    "BDX", "BEN", "BG", "BIO", "BITO", "BIV", "BJ", "BK", "BKNG", "BKR", "BLK", "BMY", "BND", "BNO", "BOIL", 
-    "BSV", "BSX", "BTC-USD", "BXP", "C", "CAG", "CAH", "CARR", "CASH", "CAT", "CB", "CBOE", "CBRE", "CCI", 
-    "CCL", "CDNS", "CE", "CEW", "CF", "CFG", "CHD", "CHDN", "CHWY", "CI", "CINF", "CL", "CLX", "CME", "CMG", "CMI", 
-    "CMS", "CNC", "COF", "COIN", "COP", "CORN", "COST", "COW", "CPB", "CPER", "CRL", "CRM", "CRWD", "CSCO", "CSX", 
-    "CTAS", "CTRA", "CVNA", "CVS", "CVX", "CYB", "CZR", "D", "DAL", "DBA", "DBC", "DD", "DDOG", "DE", "DG", "DGX", 
-    "DHI", "DHR", "DIA", "DKS", "DLR", "DLTR", "DOCS", "DOCU", "DOG", "DRI", "DTE", "DUK", "DVN", "EBAY", "ECL", 
-    "ED", "EEM", "EIX", "EL", "ELV", "EMB", "EMN", "EMR", "ENPH", "EOG", "EQIX", "EQR", "ES", "ET", "ETH-USD", "ETN", 
-    "ETSY", "EUO", "EVRG", "EW", "EWBC", "EWG", "EWJ", "EWS", "EWT", "EWU", "EWW", "EWZ", "EXAS", "EXC", "EXPE", "EXR", 
-    "F", "FANG", "FAST", "FCX", "FDS", "FDX", "FITB", "FLS", "FMC", "FNF", "FSLR", "FTNT", "FXA", "FXB", "FXC", "FXE", 
-    "FXI", "FXY", "GBTC", "GD", "GDX", "GDXJ", "GE", "GEHC", "GILD", "GIS", "GLD", "GM", "GOOG", "GOOGL", "GOVT", "GS", 
-    "GWW", "H", "HAL", "HAS", "HBAN", "HCA", "HD", "HIMS", "HLT", "HOLX", "HON", "HP", "HRL", "HSY", "HUBB", "HUBS", 
-    "HUM", "HUT", "HWM", "HYG", "IBM", "ICE", "IDXX", "IEF", "IFF", "ILMN", "INCY", "INTC", "INTU", "INVH", "IP", 
-    "IQV", "IR", "IRM", "ISRG", "ITW", "IWD", "IWF", "IWM", "JCI", "JNJ", "JNK", "JO", "JPM", "K", "KDP", "KEY", 
-    "KHC", "KIM", "KLAC", "KMB", "KMI", "KMX", "KO", "KOLD", "KR", "LEN", "LH", "LIN", "LLY", "LMT", "LNC", "LNG", 
-    "LNT", "LOW", "LQD", "LRCX", "LVS", "LW", "LYB", "MAA", "MAR", "MARA", "MAS", "MAT", "MCD", "MCHP", "MCK", "MDB", 
-    "MDLZ", "MDT", "MET", "META", "MGM", "MKC", "MKTX", "MLM", "MMC", "MMM", "MNST", "MO", "MOS", "MPC", "MRK", "MRNA", 
-    "MRVL", "MS", "MSCI", "MSFT", "MSI", "MTB", "MTD", "MTDR", "MU", "MUB", "MUR", "NBR", "NCLH", "NEE", "NEM", "NET", 
-    "NI", "NIB", "NKE", "NOV", "NOW", "NRG", "NSC", "NTRS", "NUE", "NVDA", "NVR", "NXPI", "O", "OII", "OIS", "OKE", 
-    "OKTA", "ON", "ORCL", "ORLY", "OTIS", "OVV", "OXY", "PALL", "PANW", "PAYX", "PCAR", "PCG", "PEG", "PEP", "PFE", 
-    "PG", "PGR", "PH", "PKG", "PLD", "PM", "PNC", "PNFP", "PODD", "POOL", "PPL", "PPLT", "PR", "PRU", "PSA", "PSTG", 
-    "PSX", "PTEN", "PVH", "PWR", "PYPL", "QCOM", "QQQ", "RBLX", "RCL", "REG", "REGN", "RES", "RF", "RHI", "RIOT", "RJF", 
-    "RL", "RMD", "ROK", "ROL", "ROST", "RPM", "RRC", "SAM", "SBAC", "SBUX", "SCHW", "SCHZ", "SDS", "SH", "SHOP", "SHW", 
-    "SHY", "SIG", "SIL", "SLB", "SLV", "SM", "SNOW", "SNPS", "SO", "SOYB", "SPG", "SPGI", "SPTL", "SPXU", "SPY", "SPYG", 
-    "SPYV", "SQQQ", "SRE", "STE", "STLD", "STT", "STZ", "SVXY", "SYK", "SYY", "TAP", "TEAM", "TECH", "TFX", "TGT", "TIP", 
-    "TJX", "TLT", "TMO", "TPR", "TRGP", "TROW", "TRV", "TSLA", "TSN", "TT", "TTD", "TXN", "TXT", "UAL", "UBER", "UCO", 
-    "UDR", "UL", "ULTA", "UNG", "UNH", "UNP", "UPS", "URA", "URI", "USB", "USO", "UUP", "UVXY", "VCIT", "VGK", "VGSH", 
-    "VIRT", "VIXM", "VIXY", "VLO", "VMC", "VNO", "VOO", "VRTX", "VTI", "VTR", "VTV", "VUG", "VXX", "WAB", "WAT", "WBA", 
-    "WDAY", "WEAT", "WEC", "WELL", "WFC", "WGMI", "WHR", "WM", "WMB", "WMT", "WRB", "WSM", "WY", "WYNN", "XEL", "XLB", 
-    "XLE", "XLF", "XLI", "XLK", "XLP", "XLU", "XLV", "XLY", "XOM", "XOP", "XYL", "YCS", "YUM", "ZBH", "ZION", "ZM", 
-    "ZROZ", "ZS"
-]
-
-# 2. Define the Broad Map (523 Tickers)
-
-_RAW_MAP_507 = {
+SECTOR_MAP_507 = {
     # Technology
     **{
         t: "Technology"
@@ -352,7 +312,6 @@ _RAW_MAP_507 = {
             "HOLX",
             "LH",
             "MRNA",
-            "MDGL",
             "ALGN",
             "PODD",
             "GEHC",
@@ -810,9 +769,6 @@ _RAW_MAP_507 = {
 }
 
 
-SECTOR_MAP_507 = {k: v for k, v in _RAW_MAP_507.items() if k in V507_TICKERS}
-
-
 # ------------------------------------------------------------
 # 2️⃣  UTILITY HELPERS
 # ------------------------------------------------------------
@@ -831,7 +787,7 @@ def get_sector_map(version: str = "v109") -> dict[str, str]:
     version = version.lower()
     if version in ("v109", "109", "small"):
         return SECTOR_MAP_109
-    elif version in ("v507", "507", "large"):
+    elif version in ("v507", "507", "large", "volnetx"):
         return SECTOR_MAP_507
     else:
         raise ValueError(f"Unknown model version: {version}")

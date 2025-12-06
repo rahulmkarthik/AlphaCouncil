@@ -3,6 +3,12 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime
 from dotenv import load_dotenv
+import importlib
+import sys
+
+# Force reload of fundamentalist module to pick up code changes
+if 'alphacouncil.agents.fundamentalist' in sys.modules:
+    importlib.reload(sys.modules['alphacouncil.agents.fundamentalist'])
 
 # Internal Imports
 from alphacouncil.agents.fundamentalist import fundamentalist_agent
@@ -137,8 +143,17 @@ def analyze_query(mode: str, query: str):
             else:
                 ticker = query.upper()
             
-            # Call agent
-            state = {"ticker": ticker, "messages": []}
+            # Call agent with mode context
+            state = {
+                "ticker": ticker, 
+                "messages": [], 
+                "expanded": True,
+                "mode": mode,  # "Sector Scan" or "Ticker Deep Dive"
+            }
+            # For Sector Scan, also pass the sector name directly
+            if mode == "Sector Scan":
+                state["sector"] = query  # query is the selected sector name
+            
             result = fundamentalist_agent(state)
             intel: SectorIntel = result["fundamental_signal"]
             
@@ -243,16 +258,42 @@ if st.session_state["current_analysis"]:
     
     st.divider()
     
-    # Row 3: Major Events
-    st.markdown("### 📰 Major Market-Moving Events")
-    
-    if intel.major_events:
-        for i, event in enumerate(intel.major_events, 1):
-            with st.expander(f"**Event {i}**: {event[:80]}..." if len(event) > 80 else f"**Event {i}**: {event}", expanded=(i==1)):
-                st.markdown(event)
-                st.caption("Source: Tavily Search Results")
+    # Row 3: Expanded News Feed
+    if intel.expanded_news:
+        st.markdown("### 📰 Top 10 Sector News Stories")
+        st.caption("Detailed news analysis with summaries and sources")
+        
+        for i, story in enumerate(intel.expanded_news, 1):
+            # Determine sentiment color
+            if story.sentiment == "Positive":
+                sentiment_color = "#00ff00"
+                sentiment_icon = "📈"
+            elif story.sentiment == "Negative":
+                sentiment_color = "#ff4444"
+                sentiment_icon = "📉"
+            else:
+                sentiment_color = "#ffaa00"
+                sentiment_icon = "➡️"
+            
+            with st.expander(f"{sentiment_icon} **Story {i}**: {story.headline}", expanded=(i<=3)):
+                st.markdown(f"**Summary:**")
+                st.write(story.summary)
+                
+                col_a, col_b = st.columns([3, 1])
+                with col_a:
+                    st.markdown(f"📌 **Source:** [{story.source}]({story.url})")
+                with col_b:
+                    st.markdown(f'<div style="text-align: right; color: {sentiment_color}; font-weight: bold;">{sentiment_icon} {story.sentiment}</div>', unsafe_allow_html=True)
     else:
-        st.info("No major events detected for this sector.")
+        st.markdown("### 📰 Major Market-Moving Events")
+        
+        if intel.major_events:
+            for i, event in enumerate(intel.major_events, 1):
+                with st.expander(f"**Event {i}**: {event[:80]}..." if len(event) > 80 else f"**Event {i}**: {event}", expanded=(i==1)):
+                    st.markdown(event)
+                    st.caption("Source: Tavily Search Results")
+        else:
+            st.info("No major events detected for this sector.")
     
     st.divider()
     

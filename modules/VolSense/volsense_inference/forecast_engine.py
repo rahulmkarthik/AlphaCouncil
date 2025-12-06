@@ -122,6 +122,14 @@ class Forecast:
             or 15
         )
         self.horizons = self.meta.get("horizons", [1])
+        
+        # Validate VolNetX has correct window size
+        if "volnetx" in self.model_version.lower() and self.window < 65:
+            raise ValueError(
+                f"VolNetX requires window >= 65, but got {self.window}. "
+                f"Check model checkpoint metadata at {checkpoints_dir}/{model_version}.meta.json"
+            )
+        
         print(f"✔ Window={self.window}, Horizons={self.horizons}")
 
         self.predictions = None
@@ -143,7 +151,8 @@ class Forecast:
         :rtype: pandas.DataFrame
         """
         end_date = datetime.today().date()
-        start_date = (end_date - timedelta(days=150)).strftime("%Y-%m-%d")
+        # Increased to 200 days to ensure sufficient data for VolNetX (65-day window + 60-day rolling features)
+        start_date = (end_date - timedelta(days=200)).strftime("%Y-%m-%d")
         
         # 1. Fetch Raw Data (Contains 'close')
         df_raw = build_dataset(
@@ -156,7 +165,8 @@ class Forecast:
         )
         
         # 2. Engineer Features (Likely drops 'close')
-        df_recent = build_features(df_raw)
+        # Enable earnings features for VolNetX (trained with event_earnings_heat)
+        df_recent = build_features(df_raw, include_macro=True, include_earnings=True)
         
         # 3. FIX: Merge 'close' back in if it was dropped
         if "close" in df_raw.columns and "close" not in df_recent.columns:
@@ -197,15 +207,22 @@ class Forecast:
         )
         preds = attach_realized(preds, df_recent)
         
-        # --- NEW: Multi-Horizon Momentum ---
-        if "close" in df_recent.columns:
-            # Group once to avoid re-grouping 3 times
-            grp = df_recent.sort_values("date").groupby("ticker")["close"]
+        # --- Multi-Horizon Momentum (using cumulative returns) ---
+        # Since df_recent has 'return' (daily log/simple returns), we compute
+        # momentum as cumulative return over the last N days
+        if "return" in df_recent.columns:
+            def calc_momentum(grp, n_days):
+                """Calculate cumulative return over last n_days."""
+                grp = grp.sort_values("date")
+                if len(grp) < n_days:
+                    return 0.0
+                # Use last n_days of returns, compound them: (1+r1)*(1+r2)*...*(1+rN) - 1
+                last_n = grp["return"].tail(n_days)
+                return (1 + last_n).prod() - 1
             
-            # Calculate 5d, 10d, 20d momentum (Snapshot of the LATEST value)
-            mom_5 = grp.apply(lambda x: x.pct_change(5).iloc[-1]).rename("momentum_5d")
-            mom_10 = grp.apply(lambda x: x.pct_change(10).iloc[-1]).rename("momentum_10d")
-            mom_20 = grp.apply(lambda x: x.pct_change(20).iloc[-1]).rename("momentum_20d")
+            mom_5 = df_recent.groupby("ticker").apply(lambda g: calc_momentum(g, 5)).rename("momentum_5d")
+            mom_10 = df_recent.groupby("ticker").apply(lambda g: calc_momentum(g, 10)).rename("momentum_10d")
+            mom_20 = df_recent.groupby("ticker").apply(lambda g: calc_momentum(g, 20)).rename("momentum_20d")
             
             # Merge all into preds
             preds = preds.merge(mom_5, on="ticker", how="left")

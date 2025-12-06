@@ -18,6 +18,14 @@ class TechnicalSignal(BaseModel):
     
     reasoning: str = Field(description="Concise summary of the trade rationale")
 
+# --- Fundamental Agent News Story ---
+class NewsStory(BaseModel):
+    headline: str = Field(description="The news headline")
+    summary: str = Field(description="A paragraph summary of the news story")
+    source: str = Field(description="The news source (e.g., 'Reuters', 'Bloomberg')")
+    url: str = Field(description="URL to the original article")
+    sentiment: Literal["Positive", "Negative", "Neutral"] = Field(description="Sentiment of the story")
+
 # --- Fundamental Agent Output ---
 class SectorIntel(BaseModel):
     sector: str
@@ -25,6 +33,7 @@ class SectorIntel(BaseModel):
     major_events: List[str] = Field(description="List of specific earnings, regulatory, or macro events found")
     sentiment_score: float = Field(description="-1.0 (Bearish) to 1.0 (Bullish)")
     relevance_to_ticker: str = Field(description="How these sector-wide events specifically affect the requested ticker.")
+    expanded_news: Optional[List[NewsStory]] = Field(default=None, description="Detailed news stories (only populated in expanded mode)")
 
 # --- Risk Agent Output ---
 class RiskAssessment(BaseModel):

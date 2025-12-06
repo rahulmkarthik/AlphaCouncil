@@ -71,6 +71,9 @@ def load_market_data():
             "action": signal_block.get("action", "Wait"),
             "strength": signal_block.get("strength", 0.0),
             "z_score": metrics.get("z_score", 0.0),
+            "z_score_1d": metrics.get("z_score_1d", 0.0),
+            "z_score_5d": metrics.get("z_score_5d", 0.0),
+            "z_score_10d": metrics.get("z_score_10d", 0.0),
             "current_vol": metrics.get("current_vol", 0.0),
             "forecast_1d": metrics.get("forecast_1d", 0.0),
             "forecast_5d": metrics.get("forecast_5d", 0.0),
@@ -114,6 +117,18 @@ with st.sidebar:
     # Z-Score Threshold (default to minimum to show all tickers)
     z_threshold = st.slider("Min Z-Score",  -5.0, 5.0, -5.0, 0.5)
     
+    # Horizon Toggle for Heatmap
+    st.divider()
+    st.subheader("📅 Heatmap Horizon")
+    horizon_option = st.radio(
+        "Forecast Horizon",
+        ["1-Day", "5-Day", "10-Day"],
+        index=1,  # Default to 5-Day
+        horizontal=True
+    )
+    horizon_col_map = {"1-Day": "z_score_1d", "5-Day": "z_score_5d", "10-Day": "z_score_10d"}
+    selected_z_col = horizon_col_map[horizon_option]
+    
     st.divider()
     st.caption(f"📊 Last Cache Update: {cache._today_str()}")
 
@@ -127,7 +142,7 @@ if selected_signal != "ALL":
 if selected_sectors and len(selected_sectors) > 0:
     df = df[df["sector"].isin(selected_sectors)]
 
-df = df[df["z_score"] >= z_threshold]
+df = df[df[selected_z_col] >= z_threshold]
 
 # 6. MAIN UI HEADER
 st.title("📐 The Technician's Console")
@@ -138,9 +153,9 @@ st.markdown("### 📊 Market Overview")
 c1, c2, c3, c4 = st.columns(4)
 
 total_tickers = len(df)
-strong_buys = len(df[(df["signal"] == "BUY") & (df["z_score"] > 2.0)])
+strong_buys = len(df[(df["signal"] == "BUY") & (df[selected_z_col] > 2.0)])
 regime_counts = df["regime"].value_counts()
-avg_z_score = df["z_score"].mean() if len(df) > 0 else 0.0
+avg_z_score = df[selected_z_col].mean() if len(df) > 0 else 0.0
 
 c1.metric("Tickers Analyzed", total_tickers)
 c2.metric("Strong Buy Signals", strong_buys, help="BUY signal with Z-Score > 2.0")
@@ -151,7 +166,7 @@ c4.metric("Avg Z-Score", f"{avg_z_score:.2f}")
 st.divider()
 
 # 8. ROW 2: VOLATILITY HEATMAP (Treemap)
-st.markdown("### 🗺️ Volatility Universe Heatmap")
+st.markdown(f"### 🗺️ Volatility Universe Heatmap ({horizon_option} Forecast)")
 
 if len(df) > 0:
     # Prepare data for treemap
@@ -160,7 +175,7 @@ if len(df) > 0:
     df_tree["hover_text"] = (
         df_tree["ticker"] + "<br>" +
         "Signal: " + df_tree["signal"] + "<br>" +
-        "Z-Score: " + df_tree["z_score"].round(2).astype(str) + "<br>" +
+        "Z-Score (" + horizon_option + "): " + df_tree[selected_z_col].round(2).astype(str) + "<br>" +
         "Regime: " + df_tree["regime"] + "<br>" +
         "Sector: " + df_tree["sector"]
     )
@@ -169,7 +184,7 @@ if len(df) > 0:
         df_tree,
         path=['sector', 'ticker'],
         values='abs_strength',
-        color='z_score',
+        color=selected_z_col,
         color_continuous_scale='RdYlGn',  # Red-Yellow-Green
         color_continuous_midpoint=0,
         hover_data=['signal', 'regime'],
