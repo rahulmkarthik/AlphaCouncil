@@ -277,13 +277,26 @@ def predict_batch(
     :rtype: pandas.DataFrame
     """
     rows = []
+    failed_tickers = []
+    
     for t in tqdm(tickers, desc="Forecasting"):
         try:
             rows.append(
                 predict_single(model, meta, df, t, scalers, ticker_to_id, features)
             )
+        except ValueError as e:
+            # Track insufficient data failures separately
+            if "insufficient data" in str(e):
+                failed_tickers.append(t)
+            print(f"⚠️ {t}: {e}")
         except Exception as e:
             print(f"⚠️ {t}: {e}")
+    
+    # Report summary of failures
+    if failed_tickers:
+        print(f"\n⚠️ WARNING: {len(failed_tickers)} ticker(s) skipped due to insufficient data:")
+        print(f"   {', '.join(failed_tickers[:10])}{'...' if len(failed_tickers) > 10 else ''}")
+    
     return pd.DataFrame(rows)
 
 

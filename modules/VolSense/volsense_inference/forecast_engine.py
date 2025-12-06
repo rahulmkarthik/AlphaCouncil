@@ -122,6 +122,14 @@ class Forecast:
             or 15
         )
         self.horizons = self.meta.get("horizons", [1])
+        
+        # Validate VolNetX has correct window size
+        if "volnetx" in self.model_version.lower() and self.window < 65:
+            raise ValueError(
+                f"VolNetX requires window >= 65, but got {self.window}. "
+                f"Check model checkpoint metadata at {checkpoints_dir}/{model_version}.meta.json"
+            )
+        
         print(f"✔ Window={self.window}, Horizons={self.horizons}")
 
         self.predictions = None
@@ -143,7 +151,8 @@ class Forecast:
         :rtype: pandas.DataFrame
         """
         end_date = datetime.today().date()
-        start_date = (end_date - timedelta(days=150)).strftime("%Y-%m-%d")
+        # Increased to 200 days to ensure sufficient data for VolNetX (65-day window + 60-day rolling features)
+        start_date = (end_date - timedelta(days=200)).strftime("%Y-%m-%d")
         
         # 1. Fetch Raw Data (Contains 'close')
         df_raw = build_dataset(
@@ -156,7 +165,8 @@ class Forecast:
         )
         
         # 2. Engineer Features (Likely drops 'close')
-        df_recent = build_features(df_raw)
+        # Enable earnings features for VolNetX (trained with event_earnings_heat)
+        df_recent = build_features(df_raw, include_macro=True, include_earnings=True)
         
         # 3. FIX: Merge 'close' back in if it was dropped
         if "close" in df_raw.columns and "close" not in df_recent.columns:
