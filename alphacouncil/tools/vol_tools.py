@@ -80,8 +80,18 @@ class VolSenseService:
             row_slice = sig.signals[sig.signals["ticker"] == ticker]
             if row_slice.empty:
                 continue
-                
-            row = row_slice.iloc[0]
+            
+            # Get z-scores for each horizon
+            z_scores_by_horizon = {}
+            for h in [1, 5, 10]:
+                h_row = row_slice[row_slice["horizon"] == h]
+                if not h_row.empty:
+                    z_scores_by_horizon[h] = round(float(h_row.iloc[0].get("vol_zscore", 0)), 2)
+                else:
+                    z_scores_by_horizon[h] = 0.0
+            
+            # Use horizon=5 as the primary row for other metrics (most common trading horizon)
+            row = row_slice[row_slice["horizon"] == 5].iloc[0] if not row_slice[row_slice["horizon"] == 5].empty else row_slice.iloc[0]
             
             # Serialize History (180 days)
             t_hist = full_hist[full_hist["ticker"] == ticker].sort_values("date").tail(180)
@@ -119,7 +129,10 @@ class VolSenseService:
                     "forecast_5d": round(float(row.get("forecast_vol", 0)), 4),
                     "forecast_10d": round(float(row.get("forecast_vol_10", preds.loc[preds["ticker"] == ticker, "pred_vol_10"].values[0] if "pred_vol_10" in preds.columns else 0)), 4),
                     "vol_spread_pct": round(float(row.get("vol_spread", 0)), 4),
-                    "z_score": round(float(row.get("vol_zscore", 0)), 2),
+                    "z_score": z_scores_by_horizon.get(5, 0.0),  # Default to 5d for backward compat
+                    "z_score_1d": z_scores_by_horizon.get(1, 0.0),
+                    "z_score_5d": z_scores_by_horizon.get(5, 0.0),
+                    "z_score_10d": z_scores_by_horizon.get(10, 0.0),
                     "term_spread_10v5": round(float(row.get("term_spread_10v5", 0)), 4),
                     
                     # --- NEW: Add Momentum for Context ---
