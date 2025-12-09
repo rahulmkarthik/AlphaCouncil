@@ -58,6 +58,9 @@ secrets.json
 models/
 # Keep gitkeep if you want the folder structure
 !models/.gitkeep
+# Allow VolSense production models
+!modules/VolSense/models/
+!modules/VolSense/models/**
 
 # --- IDE Settings (VS Code, JetBrains) ---
 .vscode/
