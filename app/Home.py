@@ -7,6 +7,14 @@ from alphacouncil.execution.portfolio import PortfolioService
 from alphacouncil.tools.vol_tools import VolSenseService
 from alphacouncil.data.live_feed import LiveMarketFeed
 
+# BRIDGE: Load secrets into environment variables for LangChain/Gemini
+# This works for both Local (reads secrets.toml) and Cloud (reads Secrets Management)
+if "GOOGLE_API_KEY" in st.secrets:
+    os.environ["GOOGLE_API_KEY"] = st.secrets["GOOGLE_API_KEY"]
+
+if "TAVILY_API_KEY" in st.secrets:
+    os.environ["TAVILY_API_KEY"] = st.secrets["TAVILY_API_KEY"]
+
 load_dotenv()
 
 st.set_page_config(
