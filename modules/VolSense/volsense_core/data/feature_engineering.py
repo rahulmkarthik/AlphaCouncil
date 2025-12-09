@@ -385,7 +385,8 @@ def build_features(
 
         tickers = df["ticker"].unique().tolist()
         start_date = str(df["date"].min().date())
-        end_date = str(df["date"].max().date())
+        # Extend end_date to capture upcoming earnings (heat needs future dates)
+        end_date = str((df["date"].max() + pd.Timedelta(days=90)).date())
 
         # Reuse existing fetch logic
         earnings_df = fetch_earnings_dates(tickers, start_date, end_date)
