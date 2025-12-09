@@ -1,4 +1,5 @@
 import streamlit as st
+import os
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -66,8 +67,8 @@ else:
 st.divider()
 st.markdown("### 🧭 Terminal Navigation")
 c1, c2, c3, c4, c5 = st.columns(5)
-c1.page_link("pages/1_📐_Technician.py", label="The Technician's Console", icon="📐")
-c2.page_link("pages/2_📰_Fundamentalist.py", label="The Fundamentalist's Study", icon="📰")
-c3.page_link("pages/3_🏦_Risk_Vault.py", label="The Execution Vault", icon="🏦")
-c4.page_link("pages/4_⚔️_War_Room.py", label="The War Room", icon="⚔️")
-c5.page_link("pages/5_🔬_Ticker_Scope.py", label="The Ticker Scope", icon="🔬")
+c1.page_link("pages/1_📐_Technician.py", label="Technician", icon="📐")
+c2.page_link("pages/2_📰_Fundamentalist.py", label="Fundamentalist", icon="📰")
+c3.page_link("pages/3_🏦_Risk_Vault.py", label="Risk Vault", icon="🏦")
+c4.page_link("pages/4_⚔️_War_Room.py", label="War Room", icon="⚔️")
+c5.page_link("pages/5_🔬_Ticker_Scope.py", label="Ticker Scope", icon="🔬")
