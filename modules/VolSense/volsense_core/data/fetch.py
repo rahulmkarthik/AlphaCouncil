@@ -2,12 +2,64 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import os
+from pathlib import Path
+from datetime import datetime, date
 from tqdm import tqdm
 from typing import Union, List, Dict
 
+# ============================================================
+# 📦 Daily Cache Configuration
+# ============================================================
+_DAILY_CACHE_DIR = Path(os.environ.get("VOLSENSE_CACHE_DIR", ".volsense_cache"))
+
+
+def _get_daily_cache_path(cache_key: str) -> Path:
+    """Get the path to today's daily cache file."""
+    today_str = date.today().strftime("%Y%m%d")
+    return _DAILY_CACHE_DIR / f"{cache_key}_{today_str}.parquet"
+
+
+def _load_daily_cache(cache_key: str) -> pd.DataFrame | None:
+    """Load today's cached data if it exists."""
+    cache_path = _get_daily_cache_path(cache_key)
+    if cache_path.exists():
+        try:
+            return pd.read_parquet(cache_path)
+        except Exception:
+            return None
+    return None
+
+
+def _save_daily_cache(df: pd.DataFrame, cache_key: str) -> None:
+    """Save data to today's daily cache."""
+    _DAILY_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    cache_path = _get_daily_cache_path(cache_key)
+    try:
+        df.to_parquet(cache_path, index=False)
+        # Clean up old cache files (keep only last 3 days)
+        _cleanup_old_caches(cache_key, keep_days=3)
+    except Exception as e:
+        print(f"⚠️ Failed to save cache: {e}")
+
+
+def _cleanup_old_caches(cache_key: str, keep_days: int = 3) -> None:
+    """Remove cache files older than keep_days."""
+    if not _DAILY_CACHE_DIR.exists():
+        return
+    today = date.today()
+    for f in _DAILY_CACHE_DIR.glob(f"{cache_key}_*.parquet"):
+        try:
+            # Extract date from filename
+            date_str = f.stem.split("_")[-1]
+            file_date = datetime.strptime(date_str, "%Y%m%d").date()
+            if (today - file_date).days > keep_days:
+                f.unlink()
+        except Exception:
+            pass
+
 
 # ============================================================
-# 🌍 Unified Fetch Function
+# 🌍 Unified Fetch Function (Optimized with Batch Download)
 # ============================================================
 def fetch_ohlcv(
     tickers: Union[str, List[str]],
@@ -15,9 +67,13 @@ def fetch_ohlcv(
     end: str | None = None,
     show_progress: bool = True,
     cache_dir: str | None = None,
+    use_daily_cache: bool = True,
 ) -> Union[pd.DataFrame, Dict[str, pd.DataFrame]]:
     """
     Fetch OHLCV data for one or more tickers from Yahoo Finance.
+    
+    Uses batch download for multiple tickers (10-20x faster than per-ticker).
+    Optionally uses daily caching to avoid re-downloading within the same day.
 
     :param tickers: Single ticker symbol or list of tickers.
     :type tickers: str or list[str]
@@ -25,11 +81,13 @@ def fetch_ohlcv(
     :type start: str
     :param end: End date for the download (YYYY-MM-DD). If None, fetches up to the latest available date.
     :type end: str, optional
-    :param show_progress: Whether to display a tqdm progress bar for multi-ticker requests.
+    :param show_progress: Whether to display progress for downloads.
     :type show_progress: bool
-    :param cache_dir: Optional directory to cache each ticker’s data as CSV. If provided and a cache exists, it will be reused.
+    :param cache_dir: Optional directory to cache each ticker's data as CSV (legacy).
     :type cache_dir: str, optional
-    :return: For a single ticker, a DataFrame with columns ['date','open','high','low','close','adj_close','volume']. For multiple tickers, a dict mapping ticker to its DataFrame.
+    :param use_daily_cache: If True, cache the entire batch result for the day (default: True).
+    :type use_daily_cache: bool
+    :return: For a single ticker, a DataFrame. For multiple tickers, a dict mapping ticker to DataFrame.
     :rtype: pandas.DataFrame or dict[str, pandas.DataFrame]
     """
     # Normalize tickers
@@ -40,15 +98,106 @@ def fetch_ohlcv(
         else list(dict.fromkeys([t.upper().strip() for t in tickers]))
     )
 
+    # --- Daily Cache Check (for batch requests) ---
+    if use_daily_cache and len(tickers) > 1:
+        cache_key = f"ohlcv_batch_{len(tickers)}"
+        cached_df = _load_daily_cache(cache_key)
+        if cached_df is not None:
+            print(f"✅ Loaded {len(tickers)} tickers from daily cache")
+            # Convert back to dict format
+            out_dict = {}
+            for tkr in tickers:
+                tkr_df = cached_df[cached_df["ticker"] == tkr].drop(columns=["ticker"])
+                if not tkr_df.empty:
+                    out_dict[tkr] = tkr_df.reset_index(drop=True)
+            if single_mode:
+                return next(iter(out_dict.values())) if out_dict else pd.DataFrame()
+            return out_dict
+
+    # --- Batch Download (for multiple tickers) ---
+    if len(tickers) > 1:
+        print(f"🌍 Batch downloading {len(tickers)} tickers...")
+        try:
+            raw_df = yf.download(
+                tickers,
+                start=start,
+                end=end,
+                auto_adjust=False,
+                progress=show_progress,
+                threads=True,  # Enable multi-threading
+                group_by="ticker",
+            )
+            
+            out_dict = {}
+            for tkr in tickers:
+                try:
+                    if isinstance(raw_df.columns, pd.MultiIndex):
+                        # Multi-ticker format: columns are (Ticker, Field)
+                        if tkr in raw_df.columns.get_level_values(0):
+                            df_tkr = raw_df[tkr].copy()
+                        else:
+                            continue
+                    else:
+                        # Single ticker fallback
+                        df_tkr = raw_df.copy()
+                    
+                    if df_tkr.empty:
+                        continue
+                    
+                    # Normalize columns
+                    df_tkr = df_tkr.reset_index()
+                    df_tkr.columns = [c.lower().replace(" ", "_") if isinstance(c, str) else c for c in df_tkr.columns]
+                    
+                    # Standardize column names
+                    rename_map = {"adj_close": "adj_close", "date": "date"}
+                    for old, new in [("Date", "date"), ("Adj Close", "adj_close"), ("Close", "close")]:
+                        old_lower = old.lower().replace(" ", "_")
+                        if old_lower in df_tkr.columns:
+                            rename_map[old_lower] = new
+                    df_tkr = df_tkr.rename(columns=rename_map)
+                    
+                    if "adj_close" not in df_tkr.columns:
+                        df_tkr["adj_close"] = df_tkr.get("close", np.nan)
+                    
+                    df_tkr["date"] = pd.to_datetime(df_tkr["date"], errors="coerce")
+                    df_tkr = df_tkr.dropna(subset=["date"])
+                    
+                    out_dict[tkr] = df_tkr
+                    
+                except Exception as e:
+                    print(f"⚠️ Failed processing {tkr}: {e}")
+                    continue
+            
+            # Save to daily cache
+            if use_daily_cache and out_dict:
+                cache_frames = []
+                for tkr, df in out_dict.items():
+                    df_copy = df.copy()
+                    df_copy["ticker"] = tkr
+                    cache_frames.append(df_copy)
+                if cache_frames:
+                    combined = pd.concat(cache_frames, ignore_index=True)
+                    _save_daily_cache(combined, cache_key)
+                    print(f"💾 Saved {len(out_dict)} tickers to daily cache")
+            
+            if single_mode:
+                return next(iter(out_dict.values())) if out_dict else pd.DataFrame()
+            return out_dict
+            
+        except Exception as e:
+            print(f"⚠️ Batch download failed, falling back to per-ticker: {e}")
+            # Fall through to per-ticker download
+
+    # --- Per-Ticker Download (single ticker or fallback) ---
     if cache_dir:
         os.makedirs(cache_dir, exist_ok=True)
 
+    out_dict = {}
     iterator = (
         tqdm(tickers, desc="🌍 Fetching market data", unit="ticker")
         if show_progress and len(tickers) > 1
         else tickers
     )
-    out_dict = {}
 
     for tkr in iterator:
         try:
@@ -100,6 +249,7 @@ def fetch_ohlcv(
         # Return single ticker DataFrame directly
         return next(iter(out_dict.values())) if out_dict else pd.DataFrame()
     return out_dict
+
 
 # ============================================================
 # 🌍 Fetch Macro Data

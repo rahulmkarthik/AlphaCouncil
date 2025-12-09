@@ -94,3 +94,6 @@ dmypy.json
 # --- Log Files ---
 *.log
 /logs/
+
+# --- VolSense Cache ---
+.volsense_cache/
