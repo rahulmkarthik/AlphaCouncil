@@ -398,29 +398,36 @@ def build_dataset(
 # ============================================================
 def _fetch_single_earnings(ticker: str, ts_start, ts_end) -> pd.DataFrame | None:
     """Fetch earnings for a single ticker (for concurrent execution)."""
-    try:
-        ticker_obj = yf.Ticker(ticker)
-        ed = ticker_obj.earnings_dates
+    import time
+    
+    for attempt in range(2):  # Retry once on failure
+        try:
+            ticker_obj = yf.Ticker(ticker)
+            ed = ticker_obj.earnings_dates
 
-        if ed is None or ed.empty:
+            if ed is None or ed.empty:
+                return None
+
+            ed = ed.reset_index()
+            # yfinance sometimes varies column names
+            if "Earnings Date" in ed.columns:
+                ed.rename(columns={"Earnings Date": "Date"}, inplace=True)
+            elif "Event Date" in ed.columns:
+                ed.rename(columns={"Event Date": "Date"}, inplace=True)
+
+            ed["Date"] = pd.to_datetime(ed["Date"]).dt.tz_localize(None).dt.normalize()
+            ed["Ticker"] = ticker
+            
+            mask = (ed["Date"] >= ts_start) & (ed["Date"] <= ts_end)
+            result = ed.loc[mask, ["Date", "Ticker"]]
+            return result if not result.empty else None
+            
+        except Exception as e:
+            if attempt == 0:
+                time.sleep(0.5)  # Wait before retry
+                continue
             return None
-
-        ed = ed.reset_index()
-        # yfinance sometimes varies column names
-        if "Earnings Date" in ed.columns:
-            ed.rename(columns={"Earnings Date": "Date"}, inplace=True)
-        elif "Event Date" in ed.columns:
-            ed.rename(columns={"Event Date": "Date"}, inplace=True)
-
-        ed["Date"] = pd.to_datetime(ed["Date"]).dt.tz_localize(None).dt.normalize()
-        ed["Ticker"] = ticker
-        
-        mask = (ed["Date"] >= ts_start) & (ed["Date"] <= ts_end)
-        result = ed.loc[mask, ["Date", "Ticker"]]
-        return result if not result.empty else None
-        
-    except Exception:
-        return None
+    return None
 
 
 def fetch_earnings_dates(
@@ -428,7 +435,7 @@ def fetch_earnings_dates(
     start_date: str, 
     end_date: str,
     use_daily_cache: bool = True,
-    max_workers: int = 10,
+    max_workers: int = 5,  # Reduced from 10 to avoid rate limiting
 ) -> pd.DataFrame:
     """
     Fetch earnings dates for multiple tickers with concurrent execution and caching.
