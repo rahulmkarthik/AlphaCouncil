@@ -4,9 +4,13 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from dotenv import load_dotenv
 
-# Load env vars for API keys
-load_dotenv()
+# STREAMLIT CLOUD
+if "GOOGLE_API_KEY" in st.secrets:
+    os.environ["GOOGLE_API_KEY"] = st.secrets["GOOGLE_API_KEY"]
+if "TAVILY_API_KEY" in st.secrets:
+    os.environ["TAVILY_API_KEY"] = st.secrets["TAVILY_API_KEY"]
 
+load_dotenv()  # Fallback for local development
 # --- Internal Imports ---
 from alphacouncil.graph import app as graph_app
 from alphacouncil.tools.vol_tools import VolSenseService

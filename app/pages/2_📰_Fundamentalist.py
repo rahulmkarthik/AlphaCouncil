@@ -5,6 +5,14 @@ from datetime import datetime
 from dotenv import load_dotenv
 import importlib
 import sys
+import os
+
+if "GOOGLE_API_KEY" in st.secrets:
+    os.environ["GOOGLE_API_KEY"] = st.secrets["GOOGLE_API_KEY"]
+if "TAVILY_API_KEY" in st.secrets:
+    os.environ["TAVILY_API_KEY"] = st.secrets["TAVILY_API_KEY"]
+
+load_dotenv()  # Fallback for local development
 
 # Force reload of fundamentalist module to pick up code changes
 if 'alphacouncil.agents.fundamentalist' in sys.modules:
@@ -14,8 +22,6 @@ if 'alphacouncil.agents.fundamentalist' in sys.modules:
 from alphacouncil.agents.fundamentalist import fundamentalist_agent
 from alphacouncil.schema import SectorIntel
 from volsense_inference.sector_mapping import get_sector_map
-
-load_dotenv()
 
 # 1. PAGE CONFIG
 st.set_page_config(

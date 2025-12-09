@@ -3,6 +3,16 @@ import pandas as pd
 import plotly.express as px
 from datetime import datetime
 from langchain_core.messages import HumanMessage
+import os
+from dotenv import load_dotenv
+
+# STREAMLIT CLOUD
+if "GOOGLE_API_KEY" in st.secrets:
+    os.environ["GOOGLE_API_KEY"] = st.secrets["GOOGLE_API_KEY"]
+if "TAVILY_API_KEY" in st.secrets:
+    os.environ["TAVILY_API_KEY"] = st.secrets["TAVILY_API_KEY"]
+
+load_dotenv()  # Fallback for local development
 
 # Internal Imports
 from alphacouncil.execution.portfolio import PortfolioService

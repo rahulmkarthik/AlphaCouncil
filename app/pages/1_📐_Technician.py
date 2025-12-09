@@ -4,13 +4,19 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
 from dotenv import load_dotenv
+import os
+
+if "GOOGLE_API_KEY" in st.secrets:
+    os.environ["GOOGLE_API_KEY"] = st.secrets["GOOGLE_API_KEY"]
+if "TAVILY_API_KEY" in st.secrets:
+    os.environ["TAVILY_API_KEY"] = st.secrets["TAVILY_API_KEY"]
+
+load_dotenv()  # Fallback for local development
 
 # Internal Imports
 from alphacouncil.tools.vol_tools import VolSenseService
 from alphacouncil.persistence import get_daily_cache
 from volsense_inference.sector_mapping import get_sector_map
-
-load_dotenv()
 
 # 1. PAGE CONFIG
 st.set_page_config(
