@@ -54,13 +54,9 @@ st.divider()
 # --- ROW 2: MARKET OVERVIEW (VolSense) ---
 st.subheader("🌍 VolSense Market Scan")
 
-# Simple check to see if we have data
+# Check if data is loaded
 if hasattr(vol_service, "_forecast_engine") and vol_service._forecast_engine:
-    # In a real app, you'd cache the sector summary df
-    st.info("Market Scan data would go here (Sector Heatmap from VolSense).")
-    if st.button("Run Quick Market Scan"):
-        from alphacouncil.tools.vol_tools import get_sector_trends
-        st.json(get_sector_trends.invoke({}))
+    st.success("✅ VolSense Engine is ready. View the full analysis in the **Technician's Console**.")
 else:
     st.warning("VolSense Engine is in Standby. Visit the **Technician's Console** to initialize.")
 
