@@ -47,7 +47,7 @@ secrets.json
 *.h5
 *.pkl
 *.pickle
-data/
+/data/
 # Keep gitkeep to track the folder structure if empty
 !data/.gitkeep
 
