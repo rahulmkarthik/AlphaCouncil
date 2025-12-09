@@ -59,7 +59,8 @@ if hasattr(vol_service, "_forecast_engine") and vol_service._forecast_engine:
     # In a real app, you'd cache the sector summary df
     st.info("Market Scan data would go here (Sector Heatmap from VolSense).")
     if st.button("Run Quick Market Scan"):
-        st.write(vol_service.analyze_market_sectors())
+        from alphacouncil.tools.vol_tools import get_sector_trends
+        st.json(get_sector_trends.invoke({}))
 else:
     st.warning("VolSense Engine is in Standby. Visit the **Technician's Console** to initialize.")
 
