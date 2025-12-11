@@ -51,18 +51,25 @@ vol_service = VolSenseService.get_instance()
 cache = get_daily_cache()
 sector_map = get_sector_map("v507")
 
-# 3. DATA LOADING FUNCTION
+# 3. STALE CACHE CHECK (runs on every page load, BEFORE cached function)
+def _check_and_refresh_cache():
+    """Check if cache is stale and trigger refresh if needed. Clears Streamlit cache if stale."""
+    is_stale = hasattr(cache, 'is_stale') and cache.is_stale()
+    if not cache._cache or is_stale:
+        # Clear Streamlit's function cache to force reload
+        st.cache_data.clear()
+        with st.spinner("🌊 Hydrating Market Data (Cache stale or empty)..."):
+            vol_service.hydrate_market()
+        return True
+    return False
+
+# Run stale check on every page load
+_check_and_refresh_cache()
+
+# 4. DATA LOADING FUNCTION (now only builds DataFrame, no stale check)
 @st.cache_data(ttl=3600)  # Cache for 1 hour
 def load_market_data():
     """Load and prepare universe-wide data from cache."""
-    # Check if cache is stale (from previous day) or empty
-    # Use hasattr for backward compatibility with older DailyCacheManager
-    is_stale = hasattr(cache, 'is_stale') and cache.is_stale()
-    cache_needs_refresh = not cache._cache or is_stale
-    
-    if cache_needs_refresh:
-        with st.spinner("🌊 Hydrating Market Data (Cache stale or empty)..."):
-            vol_service.hydrate_market()
     
     # Build DataFrame from cache
     rows = []
