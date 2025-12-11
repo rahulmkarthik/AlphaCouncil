@@ -40,7 +40,7 @@ SECTOR_MAP_109 = {
     # Technology
     "AAPL": "Technology",
     "MSFT": "Technology",
-    "GOOGL": "Technology",
+    "GOOG": "Technology",
     "AMZN": "Consumer Discretionary",
     "META": "Technology",
     "NVDA": "Technology",
@@ -157,7 +157,6 @@ SECTOR_MAP_507 = {
         for t in [
             "AAPL",
             "MSFT",
-            "GOOGL",
             "GOOG",
             "NVDA",
             "META",
