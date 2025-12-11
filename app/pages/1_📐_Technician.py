@@ -56,7 +56,9 @@ sector_map = get_sector_map("v507")
 def load_market_data():
     """Load and prepare universe-wide data from cache."""
     # Check if cache is stale (from previous day) or empty
-    cache_needs_refresh = not cache._cache or cache.is_stale()
+    # Use hasattr for backward compatibility with older DailyCacheManager
+    is_stale = hasattr(cache, 'is_stale') and cache.is_stale()
+    cache_needs_refresh = not cache._cache or is_stale
     
     if cache_needs_refresh:
         with st.spinner("🌊 Hydrating Market Data (Cache stale or empty)..."):
