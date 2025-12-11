@@ -83,7 +83,7 @@ def compute_base_features(
             )
 
         df = df.sort_values(["ticker", "date"]).reset_index(drop=True)
-        df["return"] = df.groupby("ticker")[price_col].pct_change(fill_method=None)
+        df["return"] = df.groupby("ticker")[price_col].pct_change()
 
     # realized volatility
     if "realized_vol" not in df.columns:
