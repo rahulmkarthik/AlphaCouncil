@@ -20,6 +20,7 @@ from alphacouncil.agents.risk_manager import risk_manager_agent
 from alphacouncil.agents.fundamentalist import fundamentalist_agent
 from alphacouncil.data.live_feed import LiveMarketFeed
 from alphacouncil.data.sentiment_cache import get_cached_sentiment, cache_sentiment
+from alphacouncil.persistence import get_daily_cache
 from alphacouncil.schema import TechnicalSignal, SectorIntel
 from volsense_inference.sector_mapping import get_sector_map
 
@@ -240,14 +241,42 @@ with c1:
 if submitted:
     # 1. RUN RISK ANALYSIS
     with st.spinner("Compliance Engine running..."):
-        # --- TECHNICIAN SIGNAL (Manual Override) ---
-        mock_tech = TechnicalSignal(
+        # --- TECHNICIAN SIGNAL (from VolSense cache) ---
+        # Fetch real signal strength from VolSense hydration cache
+        cache = get_daily_cache()
+        cache_data = cache._cache.get(ticker, {})
+        
+        # Extract real technician signal from cache
+        signal_block = cache_data.get("signal", {}) or {}
+        context_data = cache_data.get("context", {}) or {}
+        
+        # Get real confidence (strength) - fallback to 0.5 to trigger soft stop if no data
+        real_confidence = signal_block.get("strength", 0.5)
+        real_regime = context_data.get("regime", "Unknown")
+        real_signal = signal_block.get("position", "NEUTRAL")
+        
+        # Map signal position to TechnicalSignal format
+        signal_map = {
+            "LONG": "STRONG_BUY", "BULLISH": "BUY",
+            "SHORT": "STRONG_SELL", "BEARISH": "SELL",
+            "NEUTRAL": "WAIT"
+        }
+        mapped_signal = signal_map.get(real_signal, "WAIT")
+        
+        # Override signal direction based on user action
+        if action == "BUY" and mapped_signal in ["SELL", "STRONG_SELL"]:
+            mapped_signal = "BUY"
+        elif action == "SELL" and mapped_signal in ["BUY", "STRONG_BUY"]:
+            mapped_signal = "SELL"
+        
+        # Build TechnicalSignal with REAL data from VolSense
+        tech_signal = TechnicalSignal(
             ticker=ticker,
-            signal="STRONG_BUY" if action == "BUY" else "STRONG_SELL",
-            confidence=1.0,
-            regime="MANUAL_OVERRIDE",
-            key_drivers=["User Discretion"],
-            reasoning="Manual trade initiated from Risk Vault."
+            signal=mapped_signal,
+            confidence=real_confidence,  # REAL confidence from VolSense
+            regime="MANUAL_OVERRIDE",    # Flag as manual for tracking
+            key_drivers=[f"VolSense Regime: {real_regime}", f"Signal Strength: {real_confidence:.0%}"],
+            reasoning=f"Manual trade with live VolSense data. Regime: {real_regime}"
         )
         
         # --- FUNDAMENTALIST SIGNAL (with caching) ---
@@ -283,7 +312,7 @@ if submitted:
         
         agent_state = {
             "ticker": ticker,
-            "technical_signal": mock_tech,
+            "technical_signal": tech_signal,
             "fundamental_signal": fund_signal,
             "messages": [HumanMessage(content=request_text)]
         }
