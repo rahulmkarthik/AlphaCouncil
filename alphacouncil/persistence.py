@@ -12,12 +12,33 @@ if not os.path.exists(LOG_DIR):
 class DailyCacheManager:
     def __init__(self):
         # Dynamic Filename: vol_cache_YYYY-MM-DD.json
-        self.today = date.today().isoformat()
-        self.filename = f"vol_cache_{self.today}.json"
+        self._init_date = date.today().isoformat()
+        self.filename = f"vol_cache_{self._init_date}.json"
         self.file_path = os.path.join(LOG_DIR, self.filename)
         
         self._ensure_file_exists()
         self._cache = self._load_cache()
+
+    def _check_date_change(self) -> bool:
+        """Check if the date has changed since initialization and refresh if needed."""
+        current_date = date.today().isoformat()
+        if current_date != self._init_date:
+            print(f"📅 Date changed from {self._init_date} to {current_date} - refreshing cache")
+            self._init_date = current_date
+            self.filename = f"vol_cache_{self._init_date}.json"
+            self.file_path = os.path.join(LOG_DIR, self.filename)
+            self._ensure_file_exists()
+            self._cache = self._load_cache()
+            return True
+        return False
+    
+    def is_stale(self) -> bool:
+        """Check if cache is from a previous day."""
+        return date.today().isoformat() != self._init_date
+    
+    def get_cache_date(self) -> str:
+        """Return the date of the current cache."""
+        return self._init_date
 
     def _ensure_file_exists(self):
         """Creates a fresh log file for the new day if missing."""
@@ -43,18 +64,23 @@ class DailyCacheManager:
             print(f"[ERROR] Failed to write log: {e}")
 
     def get_valid_entry(self, ticker: str) -> Optional[Dict[str, Any]]:
-        # We only check the current day's file. 
-        # If you need historical lookup later, we can add a specific method for that.
+        # Check for date change before returning cached data
+        self._check_date_change()
         return self._cache.get(ticker.upper())
 
     def store_entry(self, ticker: str, data: Dict[str, Any]):
-        # No need to store "cache_date" inside the entry anymore
-        # because the filename itself acts as the timestamp.
+        # Check for date change before storing
+        self._check_date_change()
         self._cache[ticker.upper()] = data
+        self._save_cache()
+    
+    def clear(self):
+        """Clear the in-memory cache (forces re-hydration on next access)."""
+        self._cache = {}
         self._save_cache()
 
     def _today_str(self):
-        return self.today
+        return self._init_date
 
 _daily_cache = DailyCacheManager()
 def get_daily_cache(): return _daily_cache

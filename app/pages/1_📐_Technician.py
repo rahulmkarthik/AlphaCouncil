@@ -55,9 +55,11 @@ sector_map = get_sector_map("v507")
 @st.cache_data(ttl=3600)  # Cache for 1 hour
 def load_market_data():
     """Load and prepare universe-wide data from cache."""
-    # Check if cache is populated
-    if not cache._cache:
-        with st.spinner("🌊 Hydrating Market Data (First run ~60s)..."):
+    # Check if cache is stale (from previous day) or empty
+    cache_needs_refresh = not cache._cache or cache.is_stale()
+    
+    if cache_needs_refresh:
+        with st.spinner("🌊 Hydrating Market Data (Cache stale or empty)..."):
             vol_service.hydrate_market()
     
     # Build DataFrame from cache
