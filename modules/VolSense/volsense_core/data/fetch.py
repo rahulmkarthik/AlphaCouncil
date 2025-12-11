@@ -294,8 +294,8 @@ def fetch_macro_series(start_date="2000-01-01", end_date=None):
     # --- 🚀 Feature Engineering (Vectorized) ---
     if not macro_data.empty:
         # 1. Existing Legacy Features
-        if "raw_Oil" in macro_data: macro_data["macro_Oil"] = macro_data["raw_Oil"].pct_change()
-        if "raw_BTC" in macro_data: macro_data["macro_BTC"] = macro_data["raw_BTC"].pct_change()
+        if "raw_Oil" in macro_data: macro_data["macro_Oil"] = macro_data["raw_Oil"].pct_change(fill_method=None)
+        if "raw_BTC" in macro_data: macro_data["macro_BTC"] = macro_data["raw_BTC"].pct_change(fill_method=None)
         if "raw_VIX" in macro_data: macro_data["macro_VIX"] = macro_data["raw_VIX"] # VIX is already a level
         if "raw_Rates10Y" in macro_data: macro_data["macro_Rates"] = macro_data["raw_Rates10Y"] # Legacy support
         
@@ -309,13 +309,13 @@ def fetch_macro_series(start_date="2000-01-01", end_date=None):
             # We want the relative performance. If HYG drops faster than IEF, spread widens (stress).
             # Using returns difference: Ret(HYG) - Ret(IEF)
             # Negative value = Credit Stress.
-            hy_ret = macro_data["raw_CreditHY"].pct_change()
-            gov_ret = macro_data["raw_CreditGov"].pct_change()
+            hy_ret = macro_data["raw_CreditHY"].pct_change(fill_method=None)
+            gov_ret = macro_data["raw_CreditGov"].pct_change(fill_method=None)
             macro_data["macro_CreditSpread"] = hy_ret - gov_ret
             
         # 4. 🚀 NEW: USD Strength
         if "raw_USD" in macro_data: 
-            macro_data["macro_USD"] = macro_data["raw_USD"].pct_change()
+            macro_data["macro_USD"] = macro_data["raw_USD"].pct_change(fill_method=None)
 
     # Drop the intermediate "raw_" columns to keep it clean
     cols_to_keep = [c for c in macro_data.columns if c.startswith("macro_")]
@@ -376,7 +376,7 @@ def build_dataset(
         df.columns = df.columns.str.lower()
         df = df.copy()
         price_col = "adj_close" if "adj_close" in df.columns else "close"
-        df["return"] = df[price_col].pct_change()
+        df["return"] = df[price_col].pct_change(fill_method=None)
         df["realized_vol"] = df["return"].rolling(window).std() * np.sqrt(252)
         temp = df[["date", "return", "realized_vol"]].dropna().copy()
         temp["ticker"] = tkr
