@@ -17,8 +17,10 @@ load_dotenv()  # Fallback for local development
 # Internal Imports
 from alphacouncil.execution.portfolio import PortfolioService
 from alphacouncil.agents.risk_manager import risk_manager_agent
+from alphacouncil.agents.fundamentalist import fundamentalist_agent
 from alphacouncil.data.live_feed import LiveMarketFeed
-from alphacouncil.schema import TechnicalSignal 
+from alphacouncil.data.sentiment_cache import get_cached_sentiment, cache_sentiment
+from alphacouncil.schema import TechnicalSignal, SectorIntel
 from volsense_inference.sector_mapping import get_sector_map
 
 # 1. PAGE CONFIG
@@ -238,6 +240,7 @@ with c1:
 if submitted:
     # 1. RUN RISK ANALYSIS
     with st.spinner("Compliance Engine running..."):
+        # --- TECHNICIAN SIGNAL (Manual Override) ---
         mock_tech = TechnicalSignal(
             ticker=ticker,
             signal="STRONG_BUY" if action == "BUY" else "STRONG_SELL",
@@ -247,13 +250,41 @@ if submitted:
             reasoning="Manual trade initiated from Risk Vault."
         )
         
+        # --- FUNDAMENTALIST SIGNAL (with caching) ---
+        fund_signal = None
+        
+        # Check cache first
+        cached_intel = get_cached_sentiment(ticker)
+        if cached_intel:
+            fund_signal = cached_intel
+            st.toast(f"📰 Using cached sentiment for {ticker}", icon="⚡")
+        else:
+            # Fetch fresh sentiment from Fundamentalist agent
+            try:
+                with st.spinner(f"📰 Analyzing news sentiment for {ticker}..."):
+                    fund_result = fundamentalist_agent({
+                        "ticker": ticker,
+                        "expanded": False,  # Restricted mode (faster)
+                        "mode": "Ticker Deep Dive"
+                    })
+                    fund_signal = fund_result.get("fundamental_signal")
+                    
+                    # Cache the result
+                    if fund_signal:
+                        cache_sentiment(ticker, fund_signal)
+                        st.toast(f"📰 Sentiment cached for {ticker}", icon="💾")
+            except Exception as e:
+                st.warning(f"⚠️ Fundamentalist agent failed: {e}")
+                # Fallback: allow trade without fundamental check
+                fund_signal = None
+        
         # Inject explicit message for Regex parsing
         request_text = f"User manually requests to {action} {qty} shares of {ticker}."
         
         agent_state = {
             "ticker": ticker,
             "technical_signal": mock_tech,
-            "fundamental_signal": None,
+            "fundamental_signal": fund_signal,
             "messages": [HumanMessage(content=request_text)]
         }
         

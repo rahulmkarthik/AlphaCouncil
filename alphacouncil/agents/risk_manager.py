@@ -33,6 +33,7 @@ INPUT CONTEXT:
 Output strictly valid JSON matching the RiskAssessment schema.
 """
 import math
+from datetime import date
 
 
 def _resolve_live_price(ticker: str, fallback: float = 100.0) -> float:
@@ -48,6 +49,25 @@ def _resolve_live_price(ticker: str, fallback: float = 100.0) -> float:
         return fallback
     except (ValueError, TypeError, Exception):
         return fallback
+
+
+def _calculate_daily_pnl(state, default_price: float = 100.0) -> float:
+    """
+    Calculate today's realized P&L from trade history.
+    Returns negative value for losses.
+    """
+    today_str = date.today().isoformat()
+    daily_pnl = 0.0
+    
+    for trade in state.trade_history:
+        # TradeRecord is a Pydantic model, use attribute access
+        trade_date = trade.timestamp[:10]  # Extract YYYY-MM-DD
+        if trade_date == today_str:
+            # Add realized P&L from sells (pnl field is only set for SELL trades)
+            if trade.pnl is not None:
+                daily_pnl += trade.pnl
+    
+    return daily_pnl
 
 
 def risk_manager_agent(state):
@@ -136,26 +156,40 @@ def risk_manager_agent(state):
         )}
 
     # -------------------------------------------------------
-    # BUY ORDERS: FULL VALIDATION (Original Logic)
+    # BUY ORDERS: FULL VALIDATION
     # -------------------------------------------------------
     
-    # 1. SOFT GATES (Strategy Quality) - SKIPPED IF MANUAL
-    if not is_manual:
-        # Rule A: Technician Confidence Threshold
-        if tech_signal.confidence < 0.60:
-             return {"risk_assessment": RiskAssessment(
-                verdict="REJECTED",
-                reason=f"SOFT STOP: Technician confidence too low ({tech_signal.confidence:.0%}) for auto-execution.",
-                approved_quantity=0, max_exposure_allowed=0.0, risk_score=4
-            )}
-        
-        # Rule B: Fundamental Veto
-        if fund_signal and fund_signal.risk_level == "HIGH" and fund_signal.sentiment_score < -0.2:
-             return {"risk_assessment": RiskAssessment(
-                verdict="REJECTED",
-                reason=f"SOFT STOP: High Sector Risk + Negative Sentiment ({fund_signal.sentiment_score}).",
-                approved_quantity=0, max_exposure_allowed=0.0, risk_score=8
-            )}
+    # 0. HARD STOP: Daily Drawdown Check
+    portfolio = PortfolioService()
+    state_data = portfolio.get_state()
+    daily_pnl = _calculate_daily_pnl(state_data, live_price)
+    total_equity = state_data.cash_balance + sum(
+        pos.quantity * _resolve_live_price(t) 
+        for t, pos in state_data.holdings.items()
+    )
+    if total_equity > 0 and daily_pnl / total_equity < -DEFAULT_LIMITS.MAX_DAILY_DRAWDOWN:
+        return {"risk_assessment": RiskAssessment(
+            verdict="REJECTED",
+            reason=f"HARD STOP: Daily drawdown limit ({DEFAULT_LIMITS.MAX_DAILY_DRAWDOWN:.0%}) exceeded. Current loss: {daily_pnl/total_equity:.1%}",
+            approved_quantity=0, max_exposure_allowed=0.0, risk_score=10
+        )}
+    
+    # 1. SOFT GATES (Strategy Quality) - APPLIES TO ALL TRADES
+    # Rule A: Technician Confidence Threshold
+    if tech_signal and tech_signal.confidence < 0.60:
+        return {"risk_assessment": RiskAssessment(
+            verdict="REJECTED",
+            reason=f"SOFT STOP: Technician confidence too low ({tech_signal.confidence:.0%}). Consider waiting for stronger signal.",
+            approved_quantity=0, max_exposure_allowed=0.0, risk_score=4
+        )}
+    
+    # Rule B: Fundamental Veto
+    if fund_signal and fund_signal.risk_level == "HIGH" and fund_signal.sentiment_score < -0.2:
+        return {"risk_assessment": RiskAssessment(
+            verdict="REJECTED",
+            reason=f"SOFT STOP: High Sector Risk + Negative Sentiment ({fund_signal.sentiment_score:.2f}). Avoid new positions.",
+            approved_quantity=0, max_exposure_allowed=0.0, risk_score=8
+        )}
 
     # 2. PARSE TARGET QUANTITY
     requested_qty = 0
@@ -184,26 +218,35 @@ def risk_manager_agent(state):
     target_qty = max(requested_qty, 0)
 
     limits = compute_position_headroom(ticker, live_price)
-    limit_notes = []
 
+    # 2b. HARD STOP: Reject if exceeds limits (with max_qty suggestion)
     if target_qty > limits["max_qty"]:
+        max_allowed = limits["max_qty"]
+        
+        # Build detailed rejection reason
+        limit_reasons = []
         if limits["cash_max_qty"] < target_qty:
-            limit_notes.append(
-                f"Cash headroom supports {limits['cash_max_qty']} sh after ${DEFAULT_LIMITS.MIN_CASH_BUFFER:,.0f} buffer."
+            limit_reasons.append(
+                f"Cash: {limits['cash_max_qty']} shares (after ${DEFAULT_LIMITS.MIN_CASH_BUFFER:,.0f} buffer)"
             )
         if limits["sector_max_qty"] < target_qty and limits["total_equity"] > 0:
-            limit_notes.append(
-                f"{limits['sector']} sector cap allows {limits['sector_max_qty']} sh (limit {limits['sector_limit_pct']:.0%})."
+            limit_reasons.append(
+                f"{limits['sector']} sector: {limits['sector_max_qty']} shares ({limits['sector_limit_pct']:.0%} cap)"
             )
         if limits["single_position_max_qty"] < target_qty and limits["total_equity"] > 0:
-            limit_notes.append(
-                f"Single-name cap allows {limits['single_position_max_qty']} sh (limit {DEFAULT_LIMITS.MAX_SINGLE_POSITION:.0%})."
+            limit_reasons.append(
+                f"Single position: {limits['single_position_max_qty']} shares ({DEFAULT_LIMITS.MAX_SINGLE_POSITION:.0%} cap)"
             )
-
-        if limits["max_qty"] > 0:
-            target_qty = limits["max_qty"]
-        elif not limit_notes:
-            limit_notes.append("No capacity available under current limits.")
+        
+        limits_detail = "; ".join(limit_reasons) if limit_reasons else "No capacity available"
+        
+        return {"risk_assessment": RiskAssessment(
+            verdict="REJECTED",
+            reason=f"LIMIT EXCEEDED: Requested {target_qty} shares. Maximum allowed: {max_allowed} shares. [{limits_detail}]",
+            approved_quantity=0,
+            max_exposure_allowed=max_allowed * live_price,
+            risk_score=6
+        )}
 
     total_equity = limits["total_equity"]
     sector_pct_current = (
@@ -234,7 +277,7 @@ def risk_manager_agent(state):
         )
     allowable_capital = max(0.0, min(cap_candidates)) if cap_candidates else 0.0
 
-    # 3. THE HARD GATE (Solvency & Limits) - APPLIES TO ALL BUY ORDERS
+    # 3. THE HARD GATE (Solvency Check) - APPLIES TO ALL BUY ORDERS
     validation_msg = check_trade_risk.invoke(
         {"ticker": ticker, "action": "BUY", "quantity": target_qty}
     )
@@ -250,31 +293,19 @@ def risk_manager_agent(state):
             )
         }
 
-    limit_notes_block = ""
-    if limit_notes:
-        limit_notes_block = "\n    LIMIT NOTES:\n" + "\n".join(
-            f"    - {note}" for note in limit_notes
-        )
-
+    # Trade passed all gates - prepare context for LLM approval
     context = f"""
     REQUEST: Validate BUY Trade for {ticker}
     MODE: {"MANUAL USER EXECUTION" if is_manual else "AUTOMATED STRATEGY"}
     PRICE: ${live_price:.2f}
-    REQUESTED_QTY: {requested_qty}
-    FINAL_QTY: {target_qty}
-    MAX_QTY_ALLOWED: {limits['max_qty']}
-    REQUESTED_COST: ${requested_cost:,.2f}
-    FINAL_COST: ${final_cost:,.2f}
+    QUANTITY: {target_qty}
+    TRADE_VALUE: ${final_cost:,.2f}
     CASH_BALANCE: ${limits['cash_balance']:,.2f}
-    CASH_BUFFER_REQUIRED: ${DEFAULT_LIMITS.MIN_CASH_BUFFER:,.0f}
-    CASH_AVAILABLE: ${limits['cash_available_for_trade']:,.2f}
     CASH_AFTER_TRADE: ${cash_after_trade:,.2f}
-    SECTOR: {limits['sector']} | CURRENT: {sector_pct_current:.1%} | POST: {sector_pct_post:.1%} | LIMIT: {limits['sector_limit_pct']:.0%}
-    POSITION_SHARE: CURRENT: {position_pct_current:.1%} | POST: {position_pct_post:.1%} | LIMIT: {DEFAULT_LIMITS.MAX_SINGLE_POSITION:.0%}
-    MAX_CAPITAL_ALLOCATABLE: ${allowable_capital:,.2f}{limit_notes_block}
+    SECTOR: {limits['sector']} | CURRENT: {sector_pct_current:.1%} | POST: {sector_pct_post:.1%}
+    POSITION: CURRENT: {position_pct_current:.1%} | POST: {position_pct_post:.1%}
 
-    *** VALIDATION TOOL RESULT ***
-    Result: {validation_msg}
+    *** VALIDATION RESULT: {validation_msg} ***
     """
 
     response = risk_runnable.invoke(
@@ -283,12 +314,6 @@ def risk_manager_agent(state):
 
     if response.verdict == "APPROVED":
         response.approved_quantity = target_qty
-        if limit_notes or requested_qty != target_qty:
-            adjustments = "; ".join(limit_notes) if limit_notes else "Adjusted to available capacity."
-            response.reason = (
-                f"Size set to {target_qty} shares. {adjustments}"
-                f" | {response.reason}"
-            )
 
     response.max_exposure_allowed = allowable_capital
 
